@@ -10,7 +10,7 @@ st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered"
 
 st.title("GlitchCover Studio by Loop507 [Free App]")
 st.write("Carica un brano audio e crea una copertina glitch ispirata al suono.")
-st.write("Limit 200MB per file • JPG, JPEG, PNG")
+st.write("Limit 200MB per file • MP3, WAV, OGG")
 
 # Funzione helper per convertire numpy scalare in float Python
 def to_scalar(val):
@@ -27,6 +27,8 @@ img_format = st.selectbox("Scegli il formato immagine:", ["PNG", "JPEG"])
 # Funzione per analisi audio e estrazione features base
 def analyze_audio(file) -> dict:
     try:
+        # Reset del puntatore del file
+        file.seek(0)
         audio_bytes = file.read()
         y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None)
         
@@ -91,9 +93,9 @@ def generate_glitch_cover(features, seed=None, size=(600,600)):
     # Sfondo a gradienti glitch
     for i in range(0, width, 10):
         color = (
-            (base_r + random.randint(-40, 40)) % 256,
-            (base_g + random.randint(-40, 40)) % 256,
-            (base_b + random.randint(-40, 40)) % 256
+            max(0, min(255, (base_r + random.randint(-40, 40)))),
+            max(0, min(255, (base_g + random.randint(-40, 40)))),
+            max(0, min(255, (base_b + random.randint(-40, 40))))
         )
         draw.line([(i,0), (i,height)], fill=color, width=5)
     
@@ -101,9 +103,9 @@ def generate_glitch_cover(features, seed=None, size=(600,600)):
     for y in range(0, height, 3):
         shift = int(20 * np.sin(y / 15.0 + (features['bpm'] / 10)))
         line_color = (
-            (base_r + shift) % 256,
-            (base_g + shift*2) % 256,
-            (base_b + shift*3) % 256
+            max(0, min(255, (base_r + shift))),
+            max(0, min(255, (base_g + shift*2))),
+            max(0, min(255, (base_b + shift*3)))
         )
         draw.line([(0,y), (width,y)], fill=line_color, width=1)
     
@@ -124,9 +126,18 @@ def generate_glitch_cover(features, seed=None, size=(600,600)):
     # Aggiunta testo descrittivo con caratteristiche
     font_size = 14
     try:
+        # Prima prova con font di sistema comuni
         font = ImageFont.truetype("arial.ttf", font_size)
     except:
-        font = ImageFont.load_default()
+        try:
+            # Prova altri font comuni
+            font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+        except:
+            try:
+                font = ImageFont.truetype("calibri.ttf", font_size)
+            except:
+                # Fallback al font di default
+                font = ImageFont.load_default()
     
     text_lines = [
         f"Genere e Stile: {features['genre_style']}",
@@ -137,7 +148,7 @@ def generate_glitch_cover(features, seed=None, size=(600,600)):
         f"Centro spettrale: {to_scalar(features['spectral_centroid']):.1f} Hz",
         f"Gamma frequenze: {to_scalar(features['freq_range'][0]):.1f} – {to_scalar(features['freq_range'][1]):.1f} Hz",
         "Descrizione:",
-        f"Le onde distorte riflettono il ritmo di {int(to_scalar(features['bpm']))} BPM e l’energia del brano.",
+        f"Le onde distorte riflettono il ritmo di {int(to_scalar(features['bpm']))} BPM e l'energia del brano.",
     ]
     
     y_text = 10
@@ -171,7 +182,7 @@ if audio_file:
 
         if st.button("🎲 Rigenera immagine"):
             rigenera()
-            st.experimental_rerun()
+            st.rerun()
         
         img = generate_glitch_cover(features, seed=st.session_state.seed)
         st.image(img, caption="🎨 Copertina glitch generata", use_container_width=True)
@@ -192,4 +203,3 @@ else:
 # Footer
 st.markdown("---")
 st.markdown("🎨 **GlitchCover Studio by Loop507** - Unisci arte e tecnologia per dare vita ai tuoi brani!")
-
