@@ -1,122 +1,130 @@
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
+import librosa
 import io
 import random
-import librosa
-import librosa.display
-import matplotlib.pyplot as plt
+import os
 
-# Funzione per analisi audio
-def analyze_audio(file):
-    y, sr = librosa.load(file, sr=None)
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    rms = np.mean(librosa.feature.rms(y=y))
-    S = np.abs(librosa.stft(y))
-    freqs = librosa.fft_frequencies(sr=sr)
-    spectral_centroid = np.mean(librosa.feature.spectral_centroid(S=S, sr=sr))
-    # Frequenza dominante: freq con intensità massima nello spettro medio
-    avg_spectrum = np.mean(S, axis=1)
-    dominant_freq = freqs[np.argmax(avg_spectrum)]
-    return {
-        "bpm": round(tempo),
-        "rms": round(rms, 5),
-        "spectral_centroid": round(spectral_centroid),
-        "dominant_freq": round(dominant_freq),
-        "duration": round(librosa.get_duration(y=y, sr=sr), 2)
-    }
+st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="wide")
 
-# Funzione per creare immagine glitch ispirata ai dati audio
-def create_glitch_image(features, width, height, seed=None):
+st.title("GlitchCover Studio by Loop507")
+st.write("Carica un file audio e genera una copertina glitch unica ispirata al brano.")
+
+# --- Funzioni di analisi audio ---
+def analyze_audio(file_bytes):
+    try:
+        y, sr = librosa.load(io.BytesIO(file_bytes), sr=None)
+        tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+        rms = np.mean(librosa.feature.rms(y=y))
+        # Spettro frequenze
+        S = np.abs(librosa.stft(y))
+        freqs = librosa.fft_frequencies(sr=sr)
+        spectral_centroid = np.mean(librosa.feature.spectral_centroid(S=S))
+        dominant_freq = freqs[np.argmax(np.mean(S, axis=1))]
+        freq_range = (freqs[0], freqs[-1])
+        
+        return {
+            "bpm": tempo,
+            "rms": rms,
+            "spectral_centroid": spectral_centroid,
+            "dominant_freq": dominant_freq,
+            "freq_range": freq_range,
+            "sr": sr
+        }
+    except Exception as e:
+        st.error(f"Errore nell'analisi audio: {e}")
+        return None
+
+# --- Funzione glitch image generator ---
+def generate_glitch_image(audio_features, style="full", width=800, height=800, seed=None):
     if seed is not None:
         random.seed(seed)
         np.random.seed(seed)
-
-    bpm = features["bpm"]
-    rms = features["rms"]
-    centroid = features["spectral_centroid"]
-    dom_freq = features["dominant_freq"]
-
-    # Parametri immagine influenzati da dati audio
-    base_color = int(min(255, bpm * 2))
-    noise_level = int(min(50, rms * 1000))
-    wave_freq = centroid / 1000
-    shift_intensity = int(min(50, dom_freq / 10))
-
-    arr = np.zeros((height, width, 3), dtype=np.uint8)
-
-    for y in range(height):
-        shift = int(shift_intensity * np.sin(y * wave_freq))
-        for x in range(width):
-            val = (base_color + noise_level * np.random.randn()) % 256
-            r = int((val + shift) % 256)
-            g = int((val + 2*shift) % 256)
-            b = int((val + 3*shift) % 256)
-            arr[y, (x + shift) % width] = [r, g, b]
-
-    img = Image.fromarray(arr, 'RGB')
+    img = Image.new("RGB", (width, height), "black")
+    draw = ImageDraw.Draw(img)
+    
+    # Parametri da audio
+    bpm = audio_features["bpm"]
+    rms = audio_features["rms"]
+    centroid = audio_features["spectral_centroid"]
+    dominant = audio_features["dominant_freq"]
+    
+    # Base color by RMS (volume)
+    base_color_val = int(min(max(rms * 4000, 50), 255))
+    base_color = (base_color_val, 50, 255 - base_color_val)
+    
+    # Genera glitch pattern
+    for _ in range(150):
+        x0 = random.randint(0, width)
+        y0 = random.randint(0, height)
+        x1 = x0 + random.randint(10, 80)
+        y1 = y0 + random.randint(5, 30)
+        
+        # Colori e trasparenze variano con bpm e frequenze
+        color_variation = (
+            min(255, int(base_color[0] + bpm) % 255),
+            min(255, int(base_color[1] + centroid/10) % 255),
+            min(255, int(base_color[2] + dominant/10) % 255),
+        )
+        
+        draw.rectangle([x0, y0, x1, y1], fill=color_variation)
+        
+        # Distorsione e linee
+        if style == "full" or style == "energia":
+            # Onde verticali
+            for x in range(0, width, 20):
+                offset = int(10 * np.sin(x / 20 + bpm / 10))
+                draw.line([(x, 0), (x, height)], fill=(base_color_val, 0, 0), width=1)
+                
+        if style == "full" or style == "tensione":
+            # Linee orizzontali glitch
+            for y in range(0, height, 15):
+                offset = int(5 * np.cos(y / 15 + rms * 100))
+                draw.line([(0, y), (width, y + offset)], fill=(0, base_color_val, 0), width=1)
+        
+    # Blur per effetto artistico
+    img = img.filter(ImageFilter.GaussianBlur(radius=2))
     return img
 
-# Interfaccia Streamlit
-st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
+# --- Interfaccia utente ---
 
-st.title("GlitchCover Studio by Loop507 [Free App]")
-st.write("Carica un file audio e genera una copertina glitch ispirata al tuo brano.")
-st.write("**Limit 200MB per file • Formati supportati: mp3, wav, flac, ogg**")
+uploaded_audio = st.file_uploader("Carica il file audio (max 200MB):", type=["mp3", "wav", "flac"])
 
-audio_file = st.file_uploader("Carica il tuo brano audio", type=["mp3", "wav", "flac", "ogg"])
+img_format = st.selectbox("Scegli il formato immagine:", ["PNG", "JPEG"])
 
-format_option = st.selectbox("Scegli il formato immagine", options=["Quadrato 1:1", "Orizzontale 16:9", "Verticale 9:16"])
-
-if audio_file is not None:
-    try:
-        features = analyze_audio(audio_file)
-        st.subheader("Analisi audio")
-        st.write(f"**Durata:** {features['duration']} secondi")
-        st.write(f"**BPM (tempo):** {features['bpm']}")
-        st.write(f"**Energia (RMS):** {features['rms']}")
-        st.write(f"**Centro spettrale medio:** {features['spectral_centroid']} Hz")
-        st.write(f"**Frequenza dominante:** {features['dominant_freq']} Hz")
-
-        # Dimensioni immagine in base al formato scelto
-        if format_option == "Quadrato 1:1":
-            width, height = 512, 512
-        elif format_option == "Orizzontale 16:9":
-            width, height = 768, 432
-        else:
-            width, height = 432, 768
-
-        # Bottone rigenera immagine
-        if "seed" not in st.session_state:
-            st.session_state.seed = random.randint(0, 10000)
-
-        if st.button("🎲 Rigenera immagine"):
-            st.session_state.seed = random.randint(0, 10000)
-
-        glitch_img = create_glitch_image(features, width, height, seed=st.session_state.seed)
-        st.image(glitch_img, caption="Copertina Glitch generata", use_container_width=True)
-
-        # Descrizione immagine
-        description = (
-            f"L'immagine riflette il ritmo di {features['bpm']} BPM, "
-            f"con colori influenzati dall'energia (RMS={features['rms']}) e distorsioni "
-            f"basate sulla frequenza dominante di {features['dominant_freq']} Hz."
-        )
-        st.markdown(f"**Descrizione immagine:** {description}")
-
-        # Download immagine
-        buf = io.BytesIO()
-        glitch_img.save(buf, format="PNG")
-        byte_im = buf.getvalue()
-
-        st.download_button("⬇️ Scarica copertina PNG", data=byte_im, file_name="glitch_cover.png", mime="image/png")
-
-    except Exception as e:
-        st.error(f"Errore nell'elaborazione: {str(e)}")
-
+if uploaded_audio:
+    # Leggi bytes
+    audio_bytes = uploaded_audio.read()
+    
+    # Analisi audio
+    st.info("Analizzo il file audio...")
+    features = analyze_audio(audio_bytes)
+    
+    if features:
+        st.success("Analisi completata!")
+        st.write(f"🎵 BPM stimati: {features['bpm']:.1f}")
+        st.write(f"🔊 Energia (RMS): {features['rms']:.4f}")
+        st.write(f"🔎 Frequenza dominante: {features['dominant_freq']:.1f} Hz")
+        st.write(f"📡 Centro spettrale medio: {features['spectral_centroid']:.1f} Hz")
+        st.write(f"🌈 Gamma frequenze: {features['freq_range'][0]:.1f} Hz – {features['freq_range'][1]:.1f} Hz")
+        
+        # Bottone rigenera
+        if st.button("🎨 Genera copertina glitch"):
+            # Usa hash del file per il seed così cambia ogni file
+            seed = hash(audio_bytes) % (2**32)
+            img = generate_glitch_image(features, style="full", seed=seed)
+            
+            buf = io.BytesIO()
+            img.save(buf, format=img_format)
+            byte_im = buf.getvalue()
+            
+            st.image(img, caption="Copertina glitch generata", use_container_width=True)
+            st.download_button("⬇️ Scarica immagine", byte_im, file_name=f"cover_glitch.{img_format.lower()}", mime=f"image/{img_format.lower()}")
+            
 else:
-    st.info("👆 Carica un file audio per iniziare")
+    st.info("👆 Carica un file audio per iniziare!")
 
 # Footer
 st.markdown("---")
-st.markdown("🎨 **GlitchCover Studio by Loop507** - La tua arte audio-visiva personale")
+st.markdown("GlitchCover Studio by Loop507 - Creazione artistica e tecnica di copertine glitch audio-visive.")
