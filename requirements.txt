@@ -3,3 +3,4 @@ Pillow
 numpy
 librosa
 soundfile
+matplotlib
