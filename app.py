@@ -1,88 +1,122 @@
 import streamlit as st
+from PIL import Image
 import numpy as np
-from PIL import Image, ImageDraw
 import io
 import random
+import librosa
+import librosa.display
+import matplotlib.pyplot as plt
 
-# Config pagina
-st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
+# Funzione per analisi audio
+def analyze_audio(file):
+    y, sr = librosa.load(file, sr=None)
+    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    rms = np.mean(librosa.feature.rms(y=y))
+    S = np.abs(librosa.stft(y))
+    freqs = librosa.fft_frequencies(sr=sr)
+    spectral_centroid = np.mean(librosa.feature.spectral_centroid(S=S, sr=sr))
+    # Frequenza dominante: freq con intensità massima nello spettro medio
+    avg_spectrum = np.mean(S, axis=1)
+    dominant_freq = freqs[np.argmax(avg_spectrum)]
+    return {
+        "bpm": round(tempo),
+        "rms": round(rms, 5),
+        "spectral_centroid": round(spectral_centroid),
+        "dominant_freq": round(dominant_freq),
+        "duration": round(librosa.get_duration(y=y, sr=sr), 2)
+    }
 
-# Stato per rigenerare
-if "seed" not in st.session_state:
-    st.session_state.seed = random.randint(0, 99999)
+# Funzione per creare immagine glitch ispirata ai dati audio
+def create_glitch_image(features, width, height, seed=None):
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
 
-# Header
-st.title("GlitchCover Studio by Loop507")
-st.write("Carica il tuo brano per generare una copertina glitch unica e astratta, basata su analisi audio!")
+    bpm = features["bpm"]
+    rms = features["rms"]
+    centroid = features["spectral_centroid"]
+    dom_freq = features["dominant_freq"]
 
-# Upload audio
-audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3 o WAV)", type=["mp3", "wav"])
+    # Parametri immagine influenzati da dati audio
+    base_color = int(min(255, bpm * 2))
+    noise_level = int(min(50, rms * 1000))
+    wave_freq = centroid / 1000
+    shift_intensity = int(min(50, dom_freq / 10))
 
-# Formato immagine
-format_option = st.selectbox("📐 Scegli il formato della copertina:", ["1:1 (Quadrato)", "4:5 (Verticale)", "16:9 (Orizzontale)"])
+    arr = np.zeros((height, width, 3), dtype=np.uint8)
 
-format_map = {
-    "1:1 (Quadrato)": (800, 800),
-    "4:5 (Verticale)": (800, 1000),
-    "16:9 (Orizzontale)": (1280, 720)
-}
-img_width, img_height = format_map[format_option]
+    for y in range(height):
+        shift = int(shift_intensity * np.sin(y * wave_freq))
+        for x in range(width):
+            val = (base_color + noise_level * np.random.randn()) % 256
+            r = int((val + shift) % 256)
+            g = int((val + 2*shift) % 256)
+            b = int((val + 3*shift) % 256)
+            arr[y, (x + shift) % width] = [r, g, b]
 
-# Pulsante rigenera
-if st.button("🎲 Rigenera Copertina"):
-    st.session_state.seed = random.randint(0, 99999)
-
-# Funzione generazione immagine glitch
-def generate_glitch_image(width, height, seed):
-    random.seed(seed)
-    np.random.seed(seed)
-
-    # Base
-    img = Image.new("RGB", (width, height), color=(0, 0, 0))
-    draw = ImageDraw.Draw(img)
-
-    # Linee, blocchi e distorsioni glitch
-    for _ in range(300):
-        x1 = random.randint(0, width)
-        y1 = random.randint(0, height)
-        x2 = x1 + random.randint(10, 300)
-        y2 = y1 + random.randint(1, 20)
-
-        color = (
-            random.randint(80, 255),
-            random.randint(0, 180),
-            random.randint(100, 255)
-        )
-        draw.rectangle([x1, y1, x2, y2], fill=color)
-
-    # Sovrapposizione di onde/rumore
-    for i in range(0, height, 5):
-        shift = int(20 * np.sin(i / 30.0 + seed % 10))
-        region = img.crop((0, i, width, i + 1))
-        img.paste(region, (shift, i))
-
+    img = Image.fromarray(arr, 'RGB')
     return img
 
-# Generazione e visualizzazione
-if audio_file:
-    st.success("Brano caricato correttamente! Analisi simulata in corso…")
+# Interfaccia Streamlit
+st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
-    # Simula parametri audio
-    bpm = random.randint(80, 150)
-    freq_center = random.randint(400, 4000)
-    description = f"Le onde distorte riflettono il ritmo di {bpm} BPM. Frequenze dominanti attorno ai {freq_center} Hz."
+st.title("GlitchCover Studio by Loop507 [Free App]")
+st.write("Carica un file audio e genera una copertina glitch ispirata al tuo brano.")
+st.write("**Limit 200MB per file • Formati supportati: mp3, wav, flac, ogg**")
 
-    # Crea immagine glitch
-    glitch_img = generate_glitch_image(img_width, img_height, st.session_state.seed)
+audio_file = st.file_uploader("Carica il tuo brano audio", type=["mp3", "wav", "flac", "ogg"])
 
-    st.image(glitch_img, caption=description, use_container_width=True)
+format_option = st.selectbox("Scegli il formato immagine", options=["Quadrato 1:1", "Orizzontale 16:9", "Verticale 9:16"])
 
-    # Download
-    buffer = io.BytesIO()
-    glitch_img.save(buffer, format="PNG")
-    img_bytes = buffer.getvalue()
+if audio_file is not None:
+    try:
+        features = analyze_audio(audio_file)
+        st.subheader("Analisi audio")
+        st.write(f"**Durata:** {features['duration']} secondi")
+        st.write(f"**BPM (tempo):** {features['bpm']}")
+        st.write(f"**Energia (RMS):** {features['rms']}")
+        st.write(f"**Centro spettrale medio:** {features['spectral_centroid']} Hz")
+        st.write(f"**Frequenza dominante:** {features['dominant_freq']} Hz")
 
-    st.download_button("⬇️ Scarica Copertina", img_bytes, file_name="glitch_cover.png", mime="image/png")
+        # Dimensioni immagine in base al formato scelto
+        if format_option == "Quadrato 1:1":
+            width, height = 512, 512
+        elif format_option == "Orizzontale 16:9":
+            width, height = 768, 432
+        else:
+            width, height = 432, 768
+
+        # Bottone rigenera immagine
+        if "seed" not in st.session_state:
+            st.session_state.seed = random.randint(0, 10000)
+
+        if st.button("🎲 Rigenera immagine"):
+            st.session_state.seed = random.randint(0, 10000)
+
+        glitch_img = create_glitch_image(features, width, height, seed=st.session_state.seed)
+        st.image(glitch_img, caption="Copertina Glitch generata", use_container_width=True)
+
+        # Descrizione immagine
+        description = (
+            f"L'immagine riflette il ritmo di {features['bpm']} BPM, "
+            f"con colori influenzati dall'energia (RMS={features['rms']}) e distorsioni "
+            f"basate sulla frequenza dominante di {features['dominant_freq']} Hz."
+        )
+        st.markdown(f"**Descrizione immagine:** {description}")
+
+        # Download immagine
+        buf = io.BytesIO()
+        glitch_img.save(buf, format="PNG")
+        byte_im = buf.getvalue()
+
+        st.download_button("⬇️ Scarica copertina PNG", data=byte_im, file_name="glitch_cover.png", mime="image/png")
+
+    except Exception as e:
+        st.error(f"Errore nell'elaborazione: {str(e)}")
 
 else:
-    st.info("Carica un brano per iniziare.")
+    st.info("👆 Carica un file audio per iniziare")
+
+# Footer
+st.markdown("---")
+st.markdown("🎨 **GlitchCover Studio by Loop507** - La tua arte audio-visiva personale")
