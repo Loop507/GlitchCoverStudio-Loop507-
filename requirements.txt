@@ -1,5 +1,5 @@
-streamlit
-numpy
-pillow
-librosa
-matplotlib
+streamlit>=1.10
+numpy>=1.20
+pillow>=8.0
+librosa>=0.9
+matplotlib>=3.4
