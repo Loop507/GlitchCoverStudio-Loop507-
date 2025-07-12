@@ -1,6 +1,5 @@
 streamlit
-Pillow
 numpy
+pillow
 librosa
-soundfile
-matplotlib
+pydub
