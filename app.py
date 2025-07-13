@@ -61,248 +61,168 @@ def analyze_audio_librosa(file):
         st.error(f"Errore nell'analisi audio con Librosa: {str(e)}")
         return None
 
-def apply_tv_glitch_effects(img, features, seed):
-    """Applica effetti glitch realistici tipo TV distorta"""
-    random.seed(seed)
-    width, height = img.size
-    
-    # 1. DATAMOSHING - Sposta blocchi di pixel
-    for _ in range(random.randint(10, 30)):
-        # Seleziona un blocco casuale
-        block_w = random.randint(50, 200)
-        block_h = random.randint(20, 100)
-        x1 = random.randint(0, width - block_w)
-        y1 = random.randint(0, height - block_h)
+def apply_glitch_effect(img, seed):
+    try:
+        random.seed(seed)
+        img = img.convert("RGB")
+        width, height = img.size
+
+        # GLITCH PIÙ AGGRESSIVO E VARIABILE
+        shift_intensity = random.randint(5, 25)
         
-        # Copia il blocco
-        block = img.crop((x1, y1, x1 + block_w, y1 + block_h))
-        
-        # Incollalo in una posizione casuale
-        x2 = random.randint(0, width - block_w)
-        y2 = random.randint(0, height - block_h)
-        img.paste(block, (x2, y2))
-    
-    # 2. CHANNEL SHIFT - Sposta i canali RGB
-    r, g, b = img.split()
-    shift_intensity = int(features["dynamic_range"] / 100) + random.randint(5, 25)
-    
-    r = ImageChops.offset(r, random.randint(-shift_intensity, shift_intensity), 0)
-    g = ImageChops.offset(g, random.randint(-shift_intensity, shift_intensity), 0)
-    b = ImageChops.offset(b, random.randint(-shift_intensity, shift_intensity), 0)
-    
-    img = Image.merge("RGB", (r, g, b))
-    
-    # 3. SCANLINES - Linee di scansione TV
-    scanlines = create_scanlines(width, height, random.randint(2, 4), 0.4)
-    img = Image.alpha_composite(img.convert("RGBA"), scanlines).convert("RGB")
-    
-    # 4. HORIZONTAL TEARING - Strappi orizzontali
-    tear_count = int(features["rms"] * 20) + random.randint(3, 8)
-    for _ in range(tear_count):
-        y = random.randint(0, height - 20)
-        tear_height = random.randint(5, 20)
-        shift = random.randint(-50, 50)
-        
-        # Estrai la sezione
-        section = img.crop((0, y, width, y + tear_height))
-        
-        # Cancella la sezione originale
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([0, y, width, y + tear_height], fill="black")
-        
-        # Rimetti la sezione spostata
-        new_x = max(0, min(width - section.width, shift))
-        img.paste(section, (new_x, y))
-    
-    # 5. VERTICAL BARS - Barre verticali di disturbo
-    bar_count = int(features["bpm"] / 20) + random.randint(2, 6)
-    draw = ImageDraw.Draw(img)
-    for _ in range(bar_count):
-        x = random.randint(0, width - 10)
-        bar_width = random.randint(2, 8)
-        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-        draw.rectangle([x, 0, x + bar_width, height], fill=color)
-    
-    # 6. STATIC NOISE - Rumore statico
-    static_intensity = min(0.5, features["rms"] * 2)
-    static = create_tv_static(width, height, static_intensity)
-    img = Image.blend(img, static, 0.3)
-    
-    # 7. INTERLACING - Effetto interlacciamento
-    for y in range(1, height, 2):
-        # Rendi le linee pari più scure
-        draw = ImageDraw.Draw(img)
-        overlay = Image.new("RGB", (width, 1), (0, 0, 0))
-        img.paste(overlay, (0, y), overlay)
-    
-    # 8. COMPRESSION ARTIFACTS - Artefatti di compressione
-    # Riduci e ingrandisci per creare artefatti
-    compression_factor = random.randint(5, 15)
-    compressed = img.resize((width // compression_factor, height // compression_factor), Image.NEAREST)
-    img = compressed.resize((width, height), Image.NEAREST)
-    
-    # 9. CHROMATIC ABERRATION - Aberrazione cromatica
-    if random.random() < 0.7:
         r, g, b = img.split()
-        aberration = random.randint(2, 8)
-        r = ImageChops.offset(r, aberration, 0)
-        b = ImageChops.offset(b, -aberration, 0)
+        r = ImageChops.offset(r, random.randint(-shift_intensity, shift_intensity), random.randint(-shift_intensity, shift_intensity))
+        g = ImageChops.offset(g, random.randint(-shift_intensity, shift_intensity), random.randint(-shift_intensity, shift_intensity))
+        b = ImageChops.offset(b, random.randint(-shift_intensity, shift_intensity), random.randint(-shift_intensity, shift_intensity))
         img = Image.merge("RGB", (r, g, b))
-    
-    # 10. GLITCH BARS - Barre di disturbo casuali
-    glitch_bars = create_glitch_bars(width, height, features["rms"])
-    img = Image.blend(img, glitch_bars, 0.2)
-    
-    # 11. PIXEL DRIFT - Deriva dei pixel
-    if random.random() < 0.5:
-        drift_img = img.copy()
-        pixels = drift_img.load()
+
+        draw = ImageDraw.Draw(img)
         
-        drift_count = int(width * height * 0.01)  # 1% dei pixel
-        for _ in range(drift_count):
+        # Rumore più intenso
+        noise_points = random.randint(100, 400)
+        for _ in range(noise_points):
             x = random.randint(0, width - 1)
             y = random.randint(0, height - 1)
+            color = tuple(random.randint(0, 255) for _ in range(3))
+            size = random.randint(1, 3)
+            draw.rectangle([x, y, x + size, y + size], fill=color)
+
+        # Linee di disturbo più varie
+        line_spacing = random.randint(2, 8)
+        line_alpha = random.randint(10, 80)
+        for y in range(0, height, line_spacing):
+            if random.random() < 0.7:
+                line_color = (random.randint(0, line_alpha), random.randint(0, line_alpha), random.randint(0, line_alpha))
+                draw.line([(0, y), (width, y)], fill=line_color, width=random.randint(1, 2))
+
+        # Effetto pixelation variabile
+        pixelation_factor = random.randint(8, 25)
+        small = img.resize((width // pixelation_factor, height // pixelation_factor), Image.BILINEAR)
+        img = small.resize(img.size, Image.NEAREST)
+
+        # Disturbo a blocchi casuali
+        for _ in range(random.randint(3, 10)):
+            x1 = random.randint(0, width // 2)
+            y1 = random.randint(0, height // 2)
+            x2 = x1 + random.randint(50, 200)
+            y2 = y1 + random.randint(50, 200)
             
-            # Sposta il pixel casualmente
-            new_x = max(0, min(width - 1, x + random.randint(-3, 3)))
-            new_y = max(0, min(height - 1, y + random.randint(-3, 3)))
-            
-            if (x, y) != (new_x, new_y):
-                pixels[new_x, new_y] = pixels[x, y]
-        
-        img = drift_img
-    
-    return img
+            # Copia una sezione e spostala
+            if x2 < width and y2 < height:
+                try:
+                    section = img.crop((x1, y1, x2, y2))
+                    new_x = random.randint(0, width - (x2 - x1))
+                    new_y = random.randint(0, height - (y2 - y1))
+                    img.paste(section, (new_x, new_y))
+                except Exception:
+                    # Se c'è un problema con il crop/paste, continua
+                    continue
 
-def create_tv_static(width, height, intensity=0.3):
-    """Crea rumore TV statico"""
-    static = Image.new("RGB", (width, height), "black")
-    pixels = static.load()
-    
-    for x in range(width):
-        for y in range(height):
-            if random.random() < intensity:
-                val = random.randint(0, 255)
-                pixels[x, y] = (val, val, val)
-    
-    return static
-
-def create_scanlines(width, height, line_height=2, opacity=0.3):
-    """Crea linee di scansione TV"""
-    scanlines = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(scanlines)
-    
-    for y in range(0, height, line_height * 2):
-        alpha = int(255 * opacity)
-        draw.rectangle([0, y, width, y + line_height], fill=(0, 0, 0, alpha))
-    
-    return scanlines
-
-def create_glitch_bars(width, height, intensity):
-    """Crea barre di disturbo orizzontali"""
-    bars = Image.new("RGB", (width, height), "black")
-    draw = ImageDraw.Draw(bars)
-    
-    bar_count = int(intensity * 50)
-    for _ in range(bar_count):
-        y = random.randint(0, height)
-        bar_height = random.randint(1, 10)
-        color = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-        draw.rectangle([0, y, width, y + bar_height], fill=color)
-    
-    return bars
+        return img
+    except Exception as e:
+        st.error(f"Errore nell'applicazione dell'effetto glitch: {str(e)}")
+        return img
 
 def generate_glitch_image(features, seed, size=(800, 800)):
-    random.seed(seed)
-    np.random.seed(seed % 2147483647)
-    
-    width, height = size
-    
-    # BASE: Genera un'immagine base più varia
-    base_pattern = random.choice(['gradient', 'noise', 'waves', 'geometric'])
-    
-    if base_pattern == 'gradient':
-        # Gradiente basato sull'emozione
+    try:
+        # FORZA CASUALITÀ MAGGIORE
+        random.seed(seed)
+        np.random.seed(seed % 2147483647)
+        
+        # Aggiungi variazione extra al seed per ogni elemento
+        variation_seed = seed + random.randint(1, 10000)
+        
+        width, height = size
+
         img = Image.new("RGB", size, "black")
         draw = ImageDraw.Draw(img)
-        
+
         palettes = {
-            "Energetico": [(255, 0, 0), (255, 255, 0), (255, 100, 0)],
-            "Calmo": [(0, 100, 200), (100, 200, 255), (200, 255, 255)],
-            "Dinamico": [(255, 0, 255), (0, 255, 0), (255, 255, 0)],
-            "Equilibrato": [(100, 0, 200), (200, 100, 255), (255, 200, 100)]
+            "Energetico": [(255, 70, 30), (255, 140, 0), (255, 90, 60)],
+            "Calmo": [(30, 90, 160), (60, 120, 130), (0, 160, 130)],
+            "Dinamico": [(255, 0, 120), (0, 255, 70), (60, 90, 255), (255, 255, 0)],
+            "Equilibrato": [(130, 0, 180), (0, 160, 160), (160, 120, 255)]
         }
         colors = palettes.get(features["emotion"], palettes["Equilibrato"])
-        
-        # Gradiente verticale con variazioni
-        for y in range(height):
-            progress = y / height
-            color_idx = int(progress * (len(colors) - 1))
-            color = colors[color_idx]
-            
-            # Aggiungi variazione basata su BPM
-            variation = int(features["bpm"] * np.sin(y * 0.1) * 0.3)
-            final_color = tuple(max(0, min(255, c + variation)) for c in color)
-            
-            draw.line([(0, y), (width, y)], fill=final_color)
-    
-    elif base_pattern == 'noise':
-        # Pattern di rumore basato su RMS
-        img = Image.new("RGB", size, "black")
-        pixels = img.load()
-        
-        noise_intensity = min(1.0, features["rms"] * 10)
-        for x in range(width):
-            for y in range(height):
-                if random.random() < noise_intensity:
-                    intensity = random.randint(50, 255)
-                    pixels[x, y] = (intensity, intensity//2, intensity//3)
-    
-    elif base_pattern == 'waves':
-        # Pattern a onde basato su frequenza
-        img = Image.new("RGB", size, "black")
-        draw = ImageDraw.Draw(img)
-        
-        wave_freq = features["spectral_centroid"] / 1000
-        wave_count = int(features["bpm"] / 10)
-        
-        for i in range(wave_count):
-            y_base = (height // wave_count) * i
-            for x in range(width):
-                y_offset = int(30 * np.sin(x * wave_freq * 0.01))
-                y = y_base + y_offset
-                if 0 <= y < height:
-                    color = (random.randint(100, 255), random.randint(0, 200), random.randint(0, 150))
-                    draw.point((x, y), fill=color)
-    
-    else:  # geometric
-        # Pattern geometrico
-        img = Image.new("RGB", size, "black")
-        draw = ImageDraw.Draw(img)
-        
-        shape_count = int(features["dynamic_range"] / 200) + 5
-        for _ in range(shape_count):
-            x, y = random.randint(0, width), random.randint(0, height)
-            size_val = random.randint(20, 100)
-            color = (random.randint(100, 255), random.randint(100, 255), random.randint(100, 255))
-            
-            if random.random() < 0.5:
-                draw.ellipse([x, y, x + size_val, y + size_val], fill=color)
-            else:
-                draw.rectangle([x, y, x + size_val, y + size_val], fill=color)
-    
-    # APPLICA EFFETTI GLITCH TV
-    img = apply_tv_glitch_effects(img, features, seed)
-    
-    descrizione = [
-        f"🎵 BPM stimato: {features['bpm']:.1f}",
-        f"🔊 RMS (energia media): {features['rms']:.3f}",
-        f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
-        f"🎭 Stile emotivo: {features['emotion']}",
-        f"🎨 Pattern base: {base_pattern}"
-    ]
 
-    return img, descrizione
+        # VARIAZIONE MAGGIORE NEI BLOCCHI
+        block_size = max(5, int(features["rms"] * 300) + random.randint(-20, 20))
+        block_offset = random.randint(0, block_size // 2)
+        
+        for x in range(block_offset, width, block_size):
+            for y in range(block_offset, height, block_size):
+                jitter = random.randint(-80, 80)
+                size_jitter = random.randint(-5, 10)
+                actual_size = max(1, block_size + size_jitter)
+                
+                base_color = random.choice(colors)
+                color = tuple(max(0, min(255, c + jitter)) for c in base_color)
+                draw.rectangle([x, y, x + actual_size, y + actual_size], fill=color)
+
+        # LINEE PIÙ CASUALI
+        line_count = int(features["dynamic_range"] // 500) + random.randint(5, 15)
+        for _ in range(line_count):
+            if random.random() < 0.3:  # Linee orizzontali
+                start_x, start_y = 0, random.randint(0, height)
+                end_x, end_y = width, random.randint(0, height)
+            elif random.random() < 0.6:  # Linee verticali
+                start_x, start_y = random.randint(0, width), 0
+                end_x, end_y = random.randint(0, width), height
+            else:  # Linee diagonali
+                start_x = random.randint(0, width)
+                start_y = random.randint(0, height)
+                end_x = random.randint(0, width)
+                end_y = random.randint(0, height)
+                
+            draw.line((start_x, start_y, end_x, end_y), fill=random.choice(colors), width=random.randint(1, 6))
+
+        # CERCHI PIÙ VARI
+        circle_count = int(features["bpm"] // 5) + random.randint(2, 8)
+        for _ in range(circle_count):
+            cx = random.randint(0, width)
+            cy = random.randint(0, height)
+            r = int(features["rms"] * 150) + random.randint(5, 50)
+            
+            # Varia tra cerchi pieni e vuoti
+            if random.random() < 0.5:
+                draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=random.randint(1, 5))
+            else:
+                draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=random.choice(colors))
+
+        # AGGIUNGI ELEMENTI CASUALI EXTRA
+        for _ in range(random.randint(10, 30)):
+            shape_type = random.choice(['rect', 'line', 'point'])
+            color = random.choice(colors)
+            
+            if shape_type == 'rect':
+                x1, y1 = random.randint(0, width), random.randint(0, height)
+                x2, y2 = x1 + random.randint(10, 100), y1 + random.randint(10, 100)
+                draw.rectangle([x1, y1, x2, y2], fill=color)
+            elif shape_type == 'line':
+                x1, y1 = random.randint(0, width), random.randint(0, height)
+                x2, y2 = random.randint(0, width), random.randint(0, height)
+                draw.line((x1, y1, x2, y2), fill=color, width=random.randint(1, 3))
+            else:  # point
+                for _ in range(random.randint(5, 20)):
+                    x, y = random.randint(0, width), random.randint(0, height)
+                    draw.point((x, y), fill=color)
+
+        # Effetto glitch finale con seed diverso
+        img = apply_glitch_effect(img, variation_seed)
+
+        descrizione = [
+            f"🎵 BPM stimato: {features['bpm']:.1f}",
+            f"🔊 RMS (energia media): {features['rms']:.3f}",
+            f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
+            f"🎭 Stile emotivo: {features['emotion']}"
+        ]
+
+        return img, descrizione
+    except Exception as e:
+        st.error(f"Errore nella generazione dell'immagine glitch: {str(e)}")
+        # Restituisce un'immagine di fallback
+        fallback_img = Image.new("RGB", size, "black")
+        return fallback_img, ["Errore nella generazione"]
 
 # --- UI ---
 
@@ -340,18 +260,13 @@ if audio_file:
         
         if st.button("🔄 Rigenera Copertina"):
             st.session_state.regen_count += 1
-            st.rerun()  # Forza il refresh della pagina
+            st.rerun()
 
         # CREA UN SEED COMPLETAMENTE DIVERSO AD OGNI RIGENERAZIONE
-        timestamp_component = int(time.time() * 1000000) % 1000000
-        random_component = random.randint(1, 999999)
-        regen_component = st.session_state.regen_count * 54321
-        
         if st.session_state.regen_count == 0:
-            seed = base_seed  # Prima volta usa il seed del file
+            seed = base_seed
         else:
-            # Rigenerazioni: combina tutti i componenti per massima variazione
-            seed = (timestamp_component + random_component + regen_component + base_seed) % 2147483647
+            seed = int(time.time() * 1000000) + random.randint(1, 999999) + (st.session_state.regen_count * 54321)
 
         with st.spinner("🎨 Creazione copertina glitch..."):
             img, descrizione = generate_glitch_image(features, seed, size=dimensions)
