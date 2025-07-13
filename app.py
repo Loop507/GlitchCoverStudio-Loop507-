@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import io
 import random
-from PIL import Image, ImageDraw, ImageChops
+from PIL import Image, ImageDraw, ImageOps, ImageChops
 import hashlib
 import time
 
@@ -78,15 +78,15 @@ def apply_glitch_effect(img, seed):
 
     draw = ImageDraw.Draw(img)
     for _ in range(100):
-        x = random.randint(0, width)
-        y = random.randint(0, height)
+        x = random.randint(0, width - 1)
+        y = random.randint(0, height - 1)
         color = tuple(random.randint(0, 255) for _ in range(3))
         draw.point((x, y), fill=color)
 
     for y in range(0, height, 3):
         draw.line([(0, y), (width, y)], fill=(random.randint(0, 50), random.randint(0, 50), random.randint(0, 50)))
 
-    small = img.resize((width // 10, height // 10), Image.BILINEAR)
+    small = img.resize((max(1,width // 10), max(1,height // 10)), Image.BILINEAR)
     img = small.resize(img.size, Image.NEAREST)
 
     return img
@@ -131,16 +131,31 @@ def generate_glitch_image(features, seed, size=(800, 800)):
 
     img = apply_glitch_effect(img, seed)
 
-    descrizione = [
-        f"🎵 BPM stimato: {features['bpm']:.1f}",
-        f"🔊 RMS (energia media): {features['rms']:.3f}",
+    description = [
+        f"🎵 Stile: {features['emotion']}",
+        f"🔊 Intensità sonora: {features['rms']:.3f}",
         f"📡 Frequenza dominante: {features['dominant_freq']:.0f} Hz",
         f"🎼 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
-        f"🎭 Stile emotivo: {features['emotion']}"
     ]
 
-    return img, descrizione
+    mood_descriptions = {
+        "Energetico": "Un'esplosione di energia pura. Frequenze alte e impulsi veloci.",
+        "Calmo": "Un'atmosfera sognante e rilassata, adatta a notti tranquille.",
+        "Dinamico": "Contrasti netti tra ombra e luce, caos controllato.",
+        "Equilibrato": "Armonia perfetta tra ritmo e toni, ideale per ogni ascolto."
+    }
 
+    mood_desc = mood_descriptions.get(features['emotion'], "Stile audio unico e indefinibile.")
+
+    full_description = {
+        "header": f"Album Art — {features['emotion']} Style",
+        "mood": mood_desc,
+        "details": description
+    }
+
+    return img, full_description
+
+# --- UI ---
 if 'regen_count' not in st.session_state:
     st.session_state.regen_count = 0
 
@@ -166,26 +181,28 @@ if audio_file:
         seed = base_seed + st.session_state.regen_count
 
         with st.spinner("🎨 Creazione copertina glitch..."):
-            img, descrizione = generate_glitch_image(features, seed, size=dimensions)
+            img, description = generate_glitch_image(features, seed, size=dimensions)
 
         st.image(img, caption=f"Copertina glitch generata - {aspect_ratio}", use_container_width=True)
 
-        if show_analysis:
-            st.markdown("### 🎨 Descrizione Artistica")
-            for d in descrizione:
-                st.markdown(d)
+        st.markdown("### 🎨 Descrizione Artistica")
+        st.markdown(f"**{description['header']}**")
+        st.markdown(description['mood'])
+        for d in description['details']:
+            st.markdown(d)
 
         buf = io.BytesIO()
         img.save(buf, format=img_format)
         byte_im = buf.getvalue()
 
-        filename = f"glitch_cover_{features['emotion'].lower()}_{int(time.time())}.{img_format.lower()}"
+        filename = f"glitch_cover_{int(time.time())}.{img_format.lower()}"
         st.download_button(
             label=f"⬇️ Scarica {img_format} ({dimensions[0]}x{dimensions[1]})",
             data=byte_im,
             file_name=filename,
             mime=f"image/{img_format.lower()}"
         )
+
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
