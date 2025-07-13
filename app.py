@@ -1,6 +1,5 @@
 import streamlit as st
 import numpy as np
-from pydub import AudioSegment
 import io
 import random
 from PIL import Image, ImageDraw
@@ -24,46 +23,40 @@ def get_dimensions(format_type):
     else:
         return (800, 800)
 
-def analyze_audio(file):
+def analyze_audio_simple(file):
     try:
-        # Carica il file audio
-        audio = AudioSegment.from_file(file)
-        audio = audio.set_channels(1).set_frame_rate(44100)  # mono, 44.1kHz
-        samples = np.array(audio.get_array_of_samples())
-        frame_rate = audio.frame_rate
+        file.seek(0)
+        audio_bytes = bytearray(file.read())
+        file_size = len(audio_bytes)
 
-        # Calcola RMS (energia)
-        rms = np.sqrt(np.mean(samples**2)) / 32768.0  # normalizzato tra 0-1
-
-        # Frequenza dominante tramite FFT ridotta
-        fft_size = min(len(samples), 1024)
-        fft = np.fft.fft(samples[:fft_size])
-        freqs = np.fft.fftfreq(fft_size, 1/frame_rate)
-        magnitudes = np.abs(fft[:fft_size//2])
-        dominant_freq = freqs[np.argmax(magnitudes[1:]) + 1]  # escludi lo zero
-
-        # Centro spettrale medio
-        spectral_centroid = np.sum(freqs[:len(magnitudes)] * magnitudes) / np.sum(magnitudes)
-
-        # BPM simulato (puoi migliorarlo con rilevatore di battiti)
-        bpm = 120 + int((rms * 40))
-
-        # Gamma dinamica
-        dynamic_range = np.max(magnitudes) - np.min(magnitudes)
-
-        # Emozione e genere stilizzato basati sui valori
-        hash_obj = hashlib.sha256(file.getvalue()[:10000]).hexdigest()
+        # Genera un hash unico basato sui primi byte
+        hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
         hash_int = int(hash_obj[:8], 16)
 
+        random.seed(hash_int % 2147483647)
+        np.random.seed(hash_int % 2147483647)
+
+        # Estrai dati pseudo-audio dai byte
+        sample_points = [audio_bytes[i % len(audio_bytes)] for i in range(hash_int % 100 + 100)]
+
+        # Features simulate
+        bpm = 60 + (sum(sample_points[:20]) / len(sample_points[:20])) * 120 / 255
+        rms = sum(sample_points[20:40]) / len(sample_points[20:40]) / 255 * 0.1
+        dominant_freq = (sum(sample_points[40:60]) / len(sample_points[40:60])) * 10000 / 255
+        spectral_centroid = (sum(sample_points[60:80]) / len(sample_points[60:80])) * 5000 / 255
+        dynamic_range = abs(dominant_freq - spectral_centroid)
+
+        # Emozione
         if rms > 0.05 and dominant_freq > 2000:
             emotion = "Energetico"
         elif rms < 0.02 and dominant_freq < 500:
             emotion = "Calmo"
-        elif dynamic_range > 1000:
+        elif dynamic_range > 2000:
             emotion = "Dinamico"
         else:
             emotion = "Equilibrato"
 
+        # Genere stilizzato
         if dominant_freq > 2000 and bpm > 110:
             genre_style = "Elettronica/Dance"
         elif dominant_freq < 500 and bpm < 80:
@@ -76,13 +69,13 @@ def analyze_audio(file):
         return {
             "bpm": bpm,
             "rms": rms,
-            "dominant_freq": abs(dominant_freq),
-            "spectral_centroid": abs(spectral_centroid),
-            "dynamic_range": abs(dynamic_range),
+            "dominant_freq": dominant_freq,
+            "spectral_centroid": spectral_centroid,
+            "dynamic_range": dynamic_range,
             "emotion": emotion,
             "genre_style": genre_style,
             "file_hash": hash_int,
-            "file_size": file.size
+            "file_size": file_size
         }
 
     except Exception as e:
@@ -107,6 +100,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     else:
         colors = [(130, 0, 180), (0, 160, 160), (160, 120, 255)]
 
+    # Blocchi di colore
     block_size = max(5, int(features["rms"] * 100))
     for x in range(0, width, block_size):
         for y in range(0, height, block_size):
@@ -114,6 +108,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
             color = tuple(max(0, min(255, c + jitter)) for c in random.choice(colors))
             draw.rectangle([x, y, x + block_size, y + block_size], fill=color)
 
+    # Linee diagonali
     line_count = int(features["dynamic_range"] // 1000) + 3
     for _ in range(line_count):
         start_x = random.randint(0, width)
@@ -122,12 +117,13 @@ def generate_glitch_image(features, seed, size=(800, 800)):
         end_y = height if start_y == 0 else 0
         draw.line((start_x, start_y, end_x, end_y), fill=random.choice(colors), width=2)
 
+    # Cerchi pulsanti
     circle_count = int(features["bpm"] // 10)
     for _ in range(circle_count):
         cx = random.randint(0, width)
         cy = random.randint(0, height)
         r = int(features["rms"] * 100) + random.randint(5, 20)
-        draw.ellipse((cx-r, cy-r, cx+r, cy+r), outline=random.choice(colors), width=2)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=2)
 
     description = [
         f"🎵 BPM stimati: {features['bpm']:.1f}",
@@ -152,7 +148,7 @@ with col3:
     show_analysis = st.checkbox("Mostra analisi", value=True)
 
 if audio_file:
-    features = analyze_audio(audio_file)
+    features = analyze_audio_simple(audio_file)
     if features:
         st.subheader("🔍 Analisi Audio:")
         if show_analysis:
