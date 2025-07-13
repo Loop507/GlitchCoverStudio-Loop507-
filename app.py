@@ -29,8 +29,7 @@ def analyze_audio_librosa(file):
         y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None, mono=True, duration=30)
 
         bpm, _ = librosa.beat.beat_track(y=y, sr=sr)
-        if not bpm or bpm == 0:
-            bpm = 60  # default se bpm non rilevato
+        bpm = float(bpm) if bpm is not None else 60.0
 
         rms = np.mean(librosa.feature.rms(y=y))
         spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))
@@ -74,9 +73,9 @@ def apply_glitch_effect(img, seed):
     img = Image.merge("RGB", (r, g, b))
 
     draw = ImageDraw.Draw(img)
-    for _ in range(100):
-        x = random.randint(0, width)
-        y = random.randint(0, height)
+    for _ in range(150):
+        x = random.randint(0, width - 1)
+        y = random.randint(0, height - 1)
         color = tuple(random.randint(0, 255) for _ in range(3))
         draw.point((x, y), fill=color)
 
@@ -104,7 +103,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     }
     colors = palettes.get(features["emotion"], palettes["Equilibrato"])
 
-    block_size = max(5, int(features["rms"] * 300))  # scala amplificata per effetto visibile
+    block_size = max(5, int(features["rms"] * 300))  # più varianza dimensionale
     for x in range(0, width, block_size):
         for y in range(0, height, block_size):
             jitter = random.randint(-50, 50)
@@ -112,21 +111,22 @@ def generate_glitch_image(features, seed, size=(800, 800)):
             color = tuple(max(0, min(255, c + jitter)) for c in base_color)
             draw.rectangle([x, y, x + block_size, y + block_size], fill=color)
 
-    # linee glitch diagonali casuali
-    line_count = int(features["dynamic_range"] // 1000) + 5
+    line_count = int(features["dynamic_range"] // 500) + 5  # più linee glitch
     for _ in range(line_count):
-        start = (random.randint(0, width), random.randint(0, height))
-        end = (random.randint(0, width), random.randint(0, height))
-        draw.line([start, end], fill=random.choice(colors), width=random.randint(1, 4))
+        start_x = random.randint(0, width)
+        start_y = 0 if random.random() < 0.5 else height
+        end_x = random.randint(0, width)
+        end_y = height if start_y == 0 else 0
+        draw.line((start_x, start_y, end_x, end_y), fill=random.choice(colors), width=random.randint(1, 4))
 
-    # cerchi glitch sparsi
-    circle_count = int(features["bpm"] // 10) + 10
+    circle_count = int(features["bpm"] // 5)
     for _ in range(circle_count):
         cx = random.randint(0, width)
         cy = random.randint(0, height)
-        r = int(features["rms"] * 200) + random.randint(10, 30)
-        draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=2)
+        r = int(features["rms"] * 150) + random.randint(10, 30)
+        draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=random.randint(1, 3))
 
+    # Effetto glitch finale
     img = apply_glitch_effect(img, seed)
 
     descrizione = [
@@ -137,6 +137,8 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     ]
 
     return img, descrizione
+
+# --- UI ---
 
 if 'regen_count' not in st.session_state:
     st.session_state.regen_count = 0
@@ -168,7 +170,7 @@ if audio_file:
         st.image(img, caption=f"Copertina glitch generata - {aspect_ratio}", use_container_width=True)
 
         if show_analysis:
-            st.markdown("### 🎨 Descrizione Artistica")
+            st.markdown("### 🎨 Descrizione Tecnica")
             for d in descrizione:
                 st.markdown(d)
 
@@ -186,3 +188,4 @@ if audio_file:
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
+
