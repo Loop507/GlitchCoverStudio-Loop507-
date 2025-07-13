@@ -1,5 +1,5 @@
 streamlit
 numpy
-pillow
+Pillow
 pydub
-scipy
+ffmpeg-python
