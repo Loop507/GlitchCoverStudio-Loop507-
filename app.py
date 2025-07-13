@@ -50,7 +50,7 @@ def analyze_audio_librosa(file):
 
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
         mfcc_mean = np.mean(mfcc, axis=1)
-        mfcc_mean = np.nan_to_num(mfcc_mean, nan=0.0)
+        mfcc_mean = np.nan_to_num(mfcc_mean, nan=0.0, posinf=0.0, neginf=0.0)
 
         try:
             y_harmonic, y_percussive = librosa.effects.hpss(y)
@@ -121,248 +121,192 @@ def analyze_audio_librosa(file):
         return None
 
 def create_advanced_noise_pattern(size, features, seed):
-    try:
-        random.seed(seed)
-        np.random.seed(seed % 2**32)
-        width, height = size
+    random.seed(seed)
+    np.random.seed(seed % 2147483647)
+    width, height = size
+    pattern = np.zeros((height, width, 3), dtype=np.uint8)
+    mfcc_features = features['mfcc_features'][:8]
 
-        pattern = np.zeros((height, width, 3), dtype=np.uint8)
+    for i, mfcc_val in enumerate(mfcc_features):
+        mfcc_val = max(-10, min(10, mfcc_val))
+        intensity = max(10, min(100, int(abs(mfcc_val) * 50) + 10))
+        frequency = max(1, int(features['spectral_centroid'] / 1000) + i + 1)
 
-        mfcc_features = features['mfcc_features'][:8]
+        for y in range(0, height, 2):
+            for x in range(0, width, 2):
+                wave_val = np.sin(x * frequency / 100.0 + y * intensity / 200.0 + mfcc_val)
+                color_intensity = int((wave_val + 1) * 127)
+                color_intensity = max(0, min(255, color_intensity))
 
-        for i, mfcc_val in enumerate(mfcc_features):
-            intensity = max(10, min(100, int(abs(mfcc_val) * 50) + 10))
-            frequency = max(1, int(features['spectral_centroid'] / 1000) + i + 1)
+                if i % 3 == 0:
+                    pattern[y, x, 0] = min(255, pattern[y, x, 0] + color_intensity)
+                elif i % 3 == 1:
+                    pattern[y, x, 1] = min(255, pattern[y, x, 1] + color_intensity)
+                else:
+                    pattern[y, x, 2] = min(255, pattern[y, x, 2] + color_intensity)
 
-            for y in range(height):
-                for x in range(width):
-                    wave_val = np.sin(x * frequency / 100.0 + y * intensity / 200.0 + mfcc_val)
-                    color_intensity = int((wave_val + 1) * 127)
-
-                    if i % 3 == 0:
-                        pattern[y, x, 0] = min(255, pattern[y, x, 0] + color_intensity)
-                    elif i % 3 == 1:
-                        pattern[y, x, 1] = min(255, pattern[y, x, 1] + color_intensity)
-                    else:
-                        pattern[y, x, 2] = min(255, pattern[y, x, 2] + color_intensity)
-
-        return Image.fromarray(pattern, 'RGB')
-    except Exception as e:
-        st.warning(f"Errore nel pattern di rumore: {str(e)}")
-        fallback = np.random.randint(0, 100, (height, width, 3), dtype=np.uint8)
-        return Image.fromarray(fallback, 'RGB')
+    return Image.fromarray(pattern, 'RGB')
 
 def create_frequency_visualization(features, size, seed):
-    try:
-        random.seed(seed)
-        width, height = size
+    random.seed(seed)
+    width, height = size
 
-        emotion_palettes = {
-            "Aggressive": [(255, 50, 50), (255, 100, 0), (200, 0, 100)],
-            "Energetico": [(255, 0, 150), (0, 255, 100), (100, 0, 255)],
-            "Ambient": [(0, 150, 255), (100, 0, 200), (0, 200, 150)],
-            "Calmo": [(0, 100, 255), (150, 0, 255), (0, 255, 200)],
-            "Melodico": [(200, 100, 255), (255, 150, 0), (100, 255, 150)],
-            "Ritmico": [(255, 0, 255), (0, 255, 255), (255, 255, 0)],
-            "Dinamico": [(255, 100, 255), (100, 255, 255), (255, 255, 100)],
-            "Equilibrato": [(150, 0, 255), (255, 0, 150), (0, 255, 150)]
-        }
+    emotion_palettes = {
+        "Aggressive": [(255, 0, 0), (255, 69, 0), (220, 20, 60)],
+        "Energetico": [(255, 140, 0), (255, 215, 0), (255, 69, 0)],
+        "Ambient": [(0, 191, 255), (70, 130, 180), (100, 149, 237)],
+        "Calmo": [(30, 144, 255), (135, 206, 235), (70, 130, 180)],
+        "Melodico": [(148, 0, 211), (75, 0, 130), (238, 130, 238)],
+        "Ritmico": [(255, 0, 255), (0, 255, 255), (255, 255, 0)],
+        "Dinamico": [(255, 20, 147), (255, 105, 180), (255, 192, 203)],
+        "Equilibrato": [(0, 255, 0), (0, 255, 255), (255, 255, 0)]
+    }
 
-        colors = emotion_palettes.get(features["emotion"], emotion_palettes["Equilibrato"])
+    colors = emotion_palettes.get(features["emotion"], emotion_palettes["Equilibrato"])
+    modified_colors = []
+    for color in colors:
+        r, g, b = color
+        r = max(0, min(255, int(r * (1 + features['harmonic_energy'] * 2))))
+        g = max(0, min(255, int(g * (1 + features['percussive_energy'] * 3))))
+        b = max(0, min(255, int(b * (1 + features['rms'] * 5))))
+        modified_colors.append((r, g, b))
 
-        modified_colors = []
-        for color in colors:
-            r, g, b = color
-            r = max(0, min(255, int(r * (1 + features['harmonic_energy'] * 2))))
-            g = max(0, min(255, int(g * (1 + features['percussive_energy'] * 3))))
-            b = max(0, min(255, int(b * (1 + features['rms'] * 5))))
-            modified_colors.append((r, g, b))
+    img = Image.new('RGB', size, (10, 10, 25))
+    draw = ImageDraw.Draw(img)
 
-        img = Image.new('RGB', size, (10, 10, 25))
-        draw = ImageDraw.Draw(img)
+    num_bands = max(3, min(int(features['spectral_rolloff'] / 1000), 12))
+    band_height = height // (num_bands + 1)
 
-        num_bands = max(3, min(int(features['spectral_rolloff'] / 1000), 12))
-        band_height = height // (num_bands + 1)
+    for band in range(num_bands):
+        y_start = band * band_height
+        y_end = min(height, (band + 1) * band_height)
+        mfcc_idx = band % len(features['mfcc_features'])
+        intensity = features['mfcc_features'][mfcc_idx]
+        intensity = max(-10, min(10, intensity))
+        wave_amplitude = max(10, min(100, int(abs(intensity) * 50) + 20))
+        color = modified_colors[band % len(modified_colors)]
 
-        for band in range(num_bands):
-            y_start = band * band_height
-            y_end = min(height, (band + 1) * band_height)
-
-            mfcc_idx = band % len(features['mfcc_features'])
-            intensity = features['mfcc_features'][mfcc_idx]
-
-            if np.isnan(intensity) or np.isinf(intensity):
-                intensity = 0.0
-
-            wave_amplitude = max(10, min(100, int(abs(intensity) * 50) + 20))
-
-            color = modified_colors[band % len(modified_colors)]
-
-            points = []
-            for x in range(0, width, 4):
-                try:
-                    wave1 = np.sin(x * features['bpm'] / 1000.0 + band * np.pi / 4)
-                    wave2 = np.cos(x * features['onset_strength'] / 100.0 + intensity)
-
-                    combined_wave = (wave1 + wave2 * 0.5) * wave_amplitude
-
-                    y = int(y_start + band_height // 2 + combined_wave)
-                    y = max(y_start, min(y_end - 1, y))
-                    points.append((x, y))
-                except:
-                    continue
-
-            if len(points) > 1:
-                for i in range(len(points) - 1):
-                    try:
-                        draw.line([points[i], points[i + 1]], fill=color, width=max(1, random.randint(2, 4)))
-                    except:
-                        continue
-
-        num_elements = max(3, min(int(features['onset_strength'] * 2) + 3, 15))
-        for _ in range(num_elements):
+        points = []
+        for x in range(0, width, 4):
             try:
-                x = random.randint(0, width - 1)
-                y = random.randint(0, height - 1)
-                size_elem = max(10, min(80, int(features['rms'] * 200) + random.randint(10, 50)))
-
-                color = random.choice(modified_colors)
-
-                if features['percussive_energy'] > 0.02:
-                    x1 = max(0, x - size_elem//2)
-                    y1 = max(0, y - size_elem//2)
-                    x2 = min(width, x + size_elem//2)
-                    y2 = min(height, y + size_elem//2)
-                    draw.rectangle([x1, y1, x2, y2], outline=color, width=random.randint(2, 4))
-                else:
-                    x1 = max(0, x - size_elem//2)
-                    y1 = max(0, y - size_elem//2)
-                    x2 = min(width, x + size_elem//2)
-                    y2 = min(height, y + size_elem//2)
-                    draw.ellipse([x1, y1, x2, y2], outline=color, width=random.randint(2, 4))
+                bpm_val = float(features.get('bpm', 120))
+                wave1 = np.sin(x * bpm_val / 1000.0 + band * np.pi / 4)
+                wave2 = np.cos(x * features['onset_strength'] / 100.0 + intensity)
+                combined_wave = (wave1 + wave2 * 0.5) * wave_amplitude
+                y = int(y_start + band_height // 2 + combined_wave)
+                y = max(y_start, min(y_end - 1, y))
+                points.append((x, y))
             except:
                 continue
 
-        return img
-    except Exception as e:
-        st.warning(f"Errore nella visualizzazione frequenze: {str(e)}")
-        fallback = Image.new('RGB', size, (50, 50, 100))
-        return fallback
+        if len(points) > 1:
+            for i in range(len(points) - 1):
+                draw.line([points[i], points[i + 1]], fill=color, width=max(1, random.randint(2, 4)))
+
+    num_elements = max(3, min(int(features['onset_strength'] * 2) + 3, 15))
+    for _ in range(num_elements):
+        try:
+            x = random.randint(0, width - 1)
+            y = random.randint(0, height - 1)
+            size_elem = max(10, min(80, int(features['rms'] * 200) + random.randint(10, 50)))
+            color = random.choice(modified_colors)
+
+            x1 = max(0, x - size_elem // 2)
+            y1 = max(0, y - size_elem // 2)
+            x2 = min(width, x + size_elem // 2)
+            y2 = min(height, y + size_elem // 2)
+
+            if features['percussive_energy'] > 0.02:
+                draw.rectangle([x1, y1, x2, y2], outline=color, width=random.randint(2, 4))
+            else:
+                draw.ellipse([x1, y1, x2, y2], outline=color, width=random.randint(2, 4))
+        except:
+            continue
+
+    return img
 
 def apply_advanced_chromatic_aberration(img, features, seed):
-    try:
-        random.seed(seed)
+    random.seed(seed)
+    base_offset = max(1, min(20, int(features['spectral_bandwidth'] / 200)))
+    rms_multiplier = max(1, min(10, int(features['rms'] * 100)))
+    offset_r = base_offset + random.randint(-rms_multiplier, rms_multiplier)
+    offset_g = random.randint(-base_offset//2, base_offset//2)
+    offset_b = -base_offset + random.randint(-rms_multiplier//2, rms_multiplier//2)
 
-        base_offset = max(1, min(20, int(features['spectral_bandwidth'] / 200)))
-        rms_multiplier = max(1, min(10, int(features['rms'] * 100)))
+    if features['percussive_energy'] > features['harmonic_energy']:
+        offset_r_y = random.randint(-3, 3)
+        offset_b_y = random.randint(-3, 3)
+    else:
+        offset_r_y = 0
+        offset_b_y = 0
 
-        offset_r = base_offset + random.randint(-rms_multiplier, rms_multiplier)
-        offset_g = random.randint(-base_offset//2, base_offset//2)
-        offset_b = -base_offset + random.randint(-rms_multiplier//2, rms_multiplier//2)
-
-        if features['percussive_energy'] > features['harmonic_energy']:
-            offset_r_y = random.randint(-3, 3)
-            offset_b_y = random.randint(-3, 3)
-        else:
-            offset_r_y = 0
-            offset_b_y = 0
-
-        r, g, b = img.split()
-
-        r = ImageChops.offset(r, offset_r, offset_r_y)
-        g = ImageChops.offset(g, offset_g, 0)
-        b = ImageChops.offset(b, offset_b, offset_b_y)
-
-        return Image.merge('RGB', (r, g, b))
-    except Exception as e:
-        st.warning(f"Errore nell'aberrazione cromatica: {str(e)}")
-        return img
+    r, g, b = img.split()
+    r = ImageChops.offset(r, offset_r, offset_r_y)
+    g = ImageChops.offset(g, offset_g, 0)
+    b = ImageChops.offset(b, offset_b, offset_b_y)
+    return Image.merge('RGB', (r, g, b))
 
 def apply_audio_driven_datamoshing(img, features, seed):
-    try:
-        random.seed(seed)
-        width, height = img.size
+    random.seed(seed)
+    width, height = img.size
+    glitch_intensity = max(3, min(20, int(features['onset_strength'] * 15) + int(features['percussive_energy'] * 70)))
 
-        glitch_intensity = max(2, min(15, int(features['onset_strength'] * 10) + int(features['percussive_energy'] * 50)))
-
-        if features['percussive_energy'] > 0.02:
-            for _ in range(random.randint(2, glitch_intensity)):
-                try:
-                    x_pos = random.randint(0, width - 10)
-                    strip_width = random.randint(1, 8)
-
-                    if x_pos + strip_width < width:
-                        strip = img.crop((x_pos, 0, x_pos + strip_width, height))
-                        new_x = max(0, min(width - strip_width, x_pos + random.randint(-30, 30)))
-                        img.paste(strip, (new_x, 0))
-                except:
-                    continue
-        else:
-            for _ in range(random.randint(2, glitch_intensity)):
-                try:
-                    y_pos = random.randint(0, height - 10)
-                    strip_height = random.randint(1, 6)
-
-                    if y_pos + strip_height < height:
-                        strip = img.crop((0, y_pos, width, y_pos + strip_height))
-                        new_y = max(0, min(height - strip_height, y_pos + random.randint(-20, 20)))
-                        img.paste(strip, (0, new_y))
-                except:
-                    continue
-
-        return img
-    except Exception as e:
-        st.warning(f"Errore nel datamoshing: {str(e)}")
-        return img
+    if features['percussive_energy'] > 0.02:
+        for _ in range(random.randint(2, glitch_intensity)):
+            x_pos = random.randint(0, width - 10)
+            strip_width = random.randint(1, 8)
+            if x_pos + strip_width < width:
+                strip = img.crop((x_pos, 0, x_pos + strip_width, height))
+                new_x = max(0, min(width - strip_width, x_pos + random.randint(-30, 30)))
+                img.paste(strip, (new_x, 0))
+    else:
+        for _ in range(random.randint(2, glitch_intensity)):
+            y_pos = random.randint(0, height - 10)
+            strip_height = random.randint(1, 6)
+            if y_pos + strip_height < height:
+                strip = img.crop((0, y_pos, width, y_pos + strip_height))
+                new_y = max(0, min(height - strip_height, y_pos + random.randint(-20, 20)))
+                img.paste(strip, (0, new_y))
+    return img
 
 def generate_advanced_glitch_image(features, seed, size=(800, 800)):
-    try:
-        random.seed(seed)
-        np.random.seed(seed % 2**32)
+    random.seed(seed)
+    np.random.seed(seed % 2147483647)
+    img = create_frequency_visualization(features, size, seed)
 
-        img = create_frequency_visualization(features, size, seed)
+    if features['harmonic_energy'] > 0.03:
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(1.2)
+    if features['rms'] > 0.05:
+        enhancer = ImageEnhance.Color(img)
+        img = enhancer.enhance(1.1)
 
-        if features['harmonic_energy'] > 0.03:
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.2)
+    img = apply_advanced_chromatic_aberration(img, features, seed + 1000)
+    img = apply_audio_driven_datamoshing(img, features, seed + 2000)
 
-        if features['rms'] > 0.05:
-            enhancer = ImageEnhance.Color(img)
-            img = enhancer.enhance(1.1)
+    if features['emotion'] == 'Aggressive':
+        img = apply_advanced_chromatic_aberration(img, features, seed + 3000)
+    elif features['emotion'] == 'Ambient':
+        img = img.filter(ImageFilter.GaussianBlur(radius=0.8))
+    elif features['emotion'] == 'Ritmico':
+        img = img.quantize(colors=32).convert('RGB')
 
-        img = apply_advanced_chromatic_aberration(img, features, seed + 1000)
+    descrizione = [
+        f"🎵 BPM: {features['bpm']:.1f} → Velocità effetti",
+        f"🔊 RMS: {features['rms']:.3f} → Intensità colori",
+        f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz → Pattern",
+        f"⚡ Energia percussiva: {features['percussive_energy']:.3f} → Tipo glitch",
+        f"🎼 Energia armonica: {features['harmonic_energy']:.3f} → Contrasto",
+        f"🎭 Emozione: {features['emotion']} → Stile generale"
+    ]
+    return img, descrizione
 
-        img = apply_audio_driven_datamoshing(img, features, seed + 2000)
-
-        if features['emotion'] == 'Aggressive':
-            img = apply_advanced_chromatic_aberration(img, features, seed + 3000)
-        elif features['emotion'] == 'Ambient':
-            img = img.filter(ImageFilter.GaussianBlur(radius=0.8))
-        elif features['emotion'] == 'Ritmico':
-            img = img.quantize(colors=32).convert('RGB')
-
-        descrizione = [
-            f"🎵 BPM: {features['bpm']:.1f} → Velocità effetti",
-            f"🔊 RMS: {features['rms']:.3f} → Intensità colori",
-            f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz → Pattern",
-            f"⚡ Energia percussiva: {features['percussive_energy']:.3f} → Tipo glitch",
-            f"🎼 Energia armonica: {features['harmonic_energy']:.3f} → Contrasto",
-            f"🎭 Emozione: {features['emotion']} → Stile generale"
-        ]
-
-        return img, descrizione
-
-    except Exception as e:
-        st.error(f"Errore nella generazione: {str(e)}")
-        fallback = Image.new('RGB', size, (random.randint(50, 150),
-                                          random.randint(50, 150),
-                                          random.randint(50, 150)))
-        return fallback, ["Generazione fallback attiva"]
-
+# --- UI ---
 if 'regen_count' not in st.session_state:
     st.session_state.regen_count = 0
 
 audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
+
 col1, col2, col3 = st.columns(3)
 with col1:
     img_format = st.selectbox("Formato immagine:", ["PNG", "JPEG"])
@@ -374,22 +318,18 @@ with col3:
 if audio_file:
     with st.spinner("🎵 Analizzando caratteristiche audio..."):
         features = analyze_audio_librosa(audio_file)
-
     if features:
         if show_analysis:
             st.markdown("### 🎨 Analisi Audio")
-
             col_a, col_b, col_c = st.columns(3)
             with col_a:
                 st.metric("🎵 BPM", f"{features['bpm']:.1f}")
                 st.metric("🔊 RMS", f"{features['rms']:.3f}")
                 st.metric("🎭 Emozione", features['emotion'])
-
             with col_b:
                 st.metric("📡 Centro spettrale", f"{features['spectral_centroid']:.0f} Hz")
                 st.metric("⚡ Energia percussiva", f"{features['percussive_energy']:.3f}")
                 st.metric("🎼 Energia armonica", f"{features['harmonic_energy']:.3f}")
-
             with col_c:
                 st.metric("🔄 Zero crossing", f"{features['zero_crossing_rate']:.3f}")
                 st.metric("🎯 Onset strength", f"{features['onset_strength']:.1f}")
@@ -398,7 +338,6 @@ if audio_file:
         dimensions = get_dimensions(aspect_ratio)
 
         base_seed = features['file_hash']
-
         if st.button("🔄 Rigenera Copertina Glitch"):
             st.session_state.regen_count += 1
             st.rerun()
@@ -406,15 +345,13 @@ if audio_file:
         if st.session_state.regen_count == 0:
             seed = base_seed
         else:
-            timestamp_seed = int(time.time() * 1000) % 100000
-            seed = (base_seed + timestamp_seed + st.session_state.regen_count * 12345) % 2**32
+            timestamp_seed = int(time.time() * 1000000) % 1000000
+            seed = (base_seed + timestamp_seed + st.session_state.regen_count * 12345) % 2147483647
 
         with st.spinner("🎨 Generando glitch cover..."):
             img, descrizione = generate_advanced_glitch_image(features, seed, size=dimensions)
 
-        st.image(img,
-                caption=f"Glitch Cover - {features['emotion']} Style - {aspect_ratio} (Gen #{st.session_state.regen_count + 1})",
-                use_container_width=True)
+        st.image(img, caption=f"Glitch Cover - {features['emotion']} Style - {aspect_ratio} (Gen #{st.session_state.regen_count + 1})", use_container_width=True)
 
         if show_analysis:
             with st.expander("🔧 Dettagli Tecnici"):
@@ -436,13 +373,12 @@ if audio_file:
             mime=f"image/{img_format.lower()}"
         )
 
-        st.success("✅ **Effetti Glitch Applicati:**")
+        st.success("✅ Effetti Glitch Applicati:")
         st.write("• Visualizzazione frequenze basata su analisi audio")
         st.write("• Aberrazione cromatica adattiva")
         st.write("• Datamoshing responsive al contenuto")
         st.write("• Palette colori emotiva")
         st.write("• Effetti personalizzati per genere musicale")
-
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
