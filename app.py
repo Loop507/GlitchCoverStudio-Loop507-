@@ -133,15 +133,31 @@ def generate_glitch_image(features, seed, size=(800, 800)):
 
     descrizione = [
         f"🎵 BPM stimato: {features['bpm']:.1f}",
-        f"🔊 Intensità RMS: {features['rms']:.3f}",
+        f"🔊 Intensità sonora (RMS): {features['rms']:.3f}",
         f"📡 Frequenza dominante: {features['dominant_freq']:.0f} Hz",
         f"🎼 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
         f"📊 Gamma dinamica: {features['dynamic_range']:.0f} Hz",
-        f"🎭 Emozione dominante: {features['emotion']}"
+        f"🎭 Stile emozionale: {features['emotion']}"
     ]
 
-    return img, descrizione
+    mood_descriptions = {
+        "Energetico": "Un'esplosione di energia pura. Frequenze alte e impulsi veloci.",
+        "Calmo": "Un'atmosfera sognante e rilassata, adatta a notti tranquille.",
+        "Dinamico": "Contrasti netti tra ombra e luce, caos controllato.",
+        "Equilibrato": "Armonia perfetta tra ritmo e toni, ideale per ogni ascolto."
+    }
 
+    mood_desc = mood_descriptions.get(features['emotion'], "Stile audio unico e indefinibile.")
+
+    full_description = {
+        "header": f"Album Art — Stile {features['emotion']}",
+        "mood": mood_desc,
+        "details": descrizione
+    }
+
+    return img, full_description
+
+# --- UI ---
 if 'regen_count' not in st.session_state:
     st.session_state.regen_count = 0
 
@@ -167,25 +183,28 @@ if audio_file:
         seed = base_seed + st.session_state.regen_count
 
         with st.spinner("🎨 Creazione copertina glitch..."):
-            img, descrizione = generate_glitch_image(features, seed, size=dimensions)
+            img, description = generate_glitch_image(features, seed, size=dimensions)
 
         st.image(img, caption=f"Copertina glitch generata - {aspect_ratio}", use_container_width=True)
 
         st.markdown("### 🎨 Descrizione Artistica")
-        for d in descrizione:
+        st.markdown(f"**{description['header']}**")
+        st.markdown(description['mood'])
+        for d in description['details']:
             st.markdown(d)
 
         buf = io.BytesIO()
         img.save(buf, format=img_format)
         byte_im = buf.getvalue()
 
-        filename = f"glitch_cover_{int(time.time())}.{img_format.lower()}"
+        filename = f"glitch_cover_{features['emotion']}_{int(time.time())}.{img_format.lower()}"
         st.download_button(
             label=f"⬇️ Scarica {img_format} ({dimensions[0]}x{dimensions[1]})",
             data=byte_im,
             file_name=filename,
             mime=f"image/{img_format.lower()}"
         )
+
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
