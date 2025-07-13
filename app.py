@@ -5,6 +5,7 @@ import random
 from PIL import Image, ImageDraw, ImageChops
 import hashlib
 import time
+import librosa
 
 st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
@@ -21,29 +22,26 @@ def get_dimensions(format_type):
     else:
         return (800, 800)
 
-def analyze_audio_simple(file):
+def analyze_audio_librosa(file):
     try:
         file.seek(0)
-        audio_bytes = bytearray(file.read())
-        file_size = len(audio_bytes)
+        audio_bytes = file.read()
+        y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None, mono=True, duration=30)
 
+        bpm, _ = librosa.beat.beat_track(y=y, sr=sr)
+        rms = np.mean(librosa.feature.rms(y=y))
+        spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))
+        spectral_bandwidth = np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr))
+        dynamic_range = spectral_bandwidth - spectral_centroid
+
+        # Hash per seed basato su file
         hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
         hash_int = int(hash_obj[:8], 16)
 
-        random.seed(hash_int % 2147483647)
-        np.random.seed(hash_int % 2147483647)
-
-        sample_points = [audio_bytes[i % len(audio_bytes)] for i in range(hash_int % 100 + 100)]
-
-        bpm = 60 + (sum(sample_points[:20]) / len(sample_points[:20])) * 120 / 255
-        rms = sum(sample_points[20:40]) / len(sample_points[20:40]) / 255 * 0.1
-        dominant_freq = (sum(sample_points[40:60]) / len(sample_points[40:60])) * 10000 / 255
-        spectral_centroid = (sum(sample_points[60:80]) / len(sample_points[60:80])) * 5000 / 255
-        dynamic_range = abs(dominant_freq - spectral_centroid)
-
-        if rms > 0.05 and dominant_freq > 2000:
+        # Definisci emozione in modo semplice
+        if rms > 0.05 and bpm > 110:
             emotion = "Energetico"
-        elif rms < 0.02 and dominant_freq < 500:
+        elif rms < 0.02 and bpm < 80:
             emotion = "Calmo"
         elif dynamic_range > 2000:
             emotion = "Dinamico"
@@ -53,16 +51,14 @@ def analyze_audio_simple(file):
         return {
             "bpm": bpm,
             "rms": rms,
-            "dominant_freq": dominant_freq,
             "spectral_centroid": spectral_centroid,
             "dynamic_range": dynamic_range,
             "emotion": emotion,
             "file_hash": hash_int,
-            "file_size": file_size
+            "file_size": len(audio_bytes)
         }
-
     except Exception as e:
-        st.error(f"Errore nell'analisi audio: {str(e)}")
+        st.error(f"Errore nell'analisi audio con Librosa: {str(e)}")
         return None
 
 def apply_glitch_effect(img, seed):
@@ -70,7 +66,6 @@ def apply_glitch_effect(img, seed):
     img = img.convert("RGB")
     width, height = img.size
 
-    # Shift RGB leggero
     r, g, b = img.split()
     r = ImageChops.offset(r, random.randint(-5, 5), random.randint(-5, 5))
     g = ImageChops.offset(g, random.randint(-5, 5), random.randint(-5, 5))
@@ -79,7 +74,6 @@ def apply_glitch_effect(img, seed):
 
     draw = ImageDraw.Draw(img)
 
-    # Glitch bande orizzontali spostate
     for _ in range(5):
         y = random.randint(0, height - 8)
         h = random.randint(2, 8)
@@ -87,12 +81,10 @@ def apply_glitch_effect(img, seed):
         band = img.crop((0, y, width, y + h))
         img.paste(band, (offset, y))
 
-    # Scanlines glitch effetto
     for y in range(0, height, 3):
         line_color = (random.randint(0, 40), random.randint(0, 40), random.randint(0, 40))
         draw.line([(0, y), (width, y)], fill=line_color)
 
-    # Puntinismo luminoso
     for _ in range(int(width * height * 0.002)):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
@@ -144,8 +136,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     descrizione = [
         f"🎵 BPM stimato: {features['bpm']:.1f}",
         f"🔊 RMS (energia media): {features['rms']:.3f}",
-        f"📡 Frequenza dominante: {features['dominant_freq']:.0f} Hz",
-        f"🎼 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
+        f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
         f"🎭 Stile emotivo: {features['emotion']}"
     ]
 
@@ -165,7 +156,7 @@ with col3:
     show_analysis = st.checkbox("Mostra analisi", value=True)
 
 if audio_file:
-    features = analyze_audio_simple(audio_file)
+    features = analyze_audio_librosa(audio_file)
     if features:
         dimensions = get_dimensions(aspect_ratio)
         base_seed = features['file_hash']
