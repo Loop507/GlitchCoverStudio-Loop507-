@@ -103,7 +103,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     }
     colors = palettes.get(features["emotion"], palettes["Equilibrato"])
 
-    block_size = max(5, int(features["rms"] * 300))  # più varianza dimensionale
+    block_size = max(5, int(features["rms"] * 300))
     for x in range(0, width, block_size):
         for y in range(0, height, block_size):
             jitter = random.randint(-50, 50)
@@ -111,7 +111,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
             color = tuple(max(0, min(255, c + jitter)) for c in base_color)
             draw.rectangle([x, y, x + block_size, y + block_size], fill=color)
 
-    line_count = int(features["dynamic_range"] // 500) + 5  # più linee glitch
+    line_count = int(features["dynamic_range"] // 500) + 5
     for _ in range(line_count):
         start_x = random.randint(0, width)
         start_y = 0 if random.random() < 0.5 else height
@@ -156,23 +156,42 @@ with col3:
 if audio_file:
     features = analyze_audio_librosa(audio_file)
     if features:
+        # MOSTRA L'ANALISI SUBITO DOPO L'ELABORAZIONE
+        if show_analysis:
+            st.markdown("### 🎨 Analisi Audio")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.metric("🎵 BPM", f"{features['bpm']:.1f}")
+                st.metric("🔊 RMS", f"{features['rms']:.3f}")
+            with col_b:
+                st.metric("📡 Centro spettrale", f"{features['spectral_centroid']:.0f} Hz")
+                st.metric("🎭 Emozione", features['emotion'])
+        
         dimensions = get_dimensions(aspect_ratio)
+        
+        # MIGLIORA IL SEED PER VARIAZIONI REALI
         base_seed = features['file_hash']
-
+        
         if st.button("🔄 Rigenera Copertina"):
             st.session_state.regen_count += 1
+            st.rerun()  # Forza il refresh della pagina
 
-        seed = base_seed + st.session_state.regen_count
+        # CREA UN SEED PIÙ VARIABILE
+        seed = base_seed + (st.session_state.regen_count * 12345) + int(time.time() * 1000) % 10000
 
         with st.spinner("🎨 Creazione copertina glitch..."):
             img, descrizione = generate_glitch_image(features, seed, size=dimensions)
 
-        st.image(img, caption=f"Copertina glitch generata - {aspect_ratio}", use_container_width=True)
+        st.image(img, caption=f"Copertina glitch generata - {aspect_ratio} (Versione #{st.session_state.regen_count + 1})", use_container_width=True)
 
+        # MOSTRA I DETTAGLI TECNICI DELLA GENERAZIONE
         if show_analysis:
-            st.markdown("### 🎨 Descrizione Tecnica")
-            for d in descrizione:
-                st.markdown(d)
+            with st.expander("🔧 Dettagli Tecnici Generazione"):
+                st.write(f"**Seed utilizzato:** {seed}")
+                st.write(f"**Numero rigenerazioni:** {st.session_state.regen_count + 1}")
+                st.write("**Parametri utilizzati:**")
+                for d in descrizione:
+                    st.markdown(f"- {d}")
 
         buf = io.BytesIO()
         img.save(buf, format=img_format)
@@ -188,4 +207,3 @@ if audio_file:
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
-
