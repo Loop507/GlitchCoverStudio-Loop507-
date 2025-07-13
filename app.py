@@ -1,3 +1,5 @@
+# GlitchCover Studio by Loop507 - Versione Artistica Avanzata
+
 import streamlit as st
 import numpy as np
 import io
@@ -6,62 +8,65 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import hashlib
 import time
 import math
+from scipy.io import wavfile
+from pydub import AudioSegment
 
 st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
 st.title("GlitchCover Studio by Loop507 [Free App]")
-st.write("Carica un brano audio e crea una copertina glitch ispirata al suono.")
+st.write("Carica un brano audio e crea una copertina glitch ispirata ai dati del suono.")
 st.write("Limit 200MB per file • MP3, WAV, OGG")
+
+# Analisi audio basata su bytes + estrazione più realistica da pydub
 
 def analyze_audio_detailed(file) -> dict:
     try:
+        audio = AudioSegment.from_file(file)
+        samples = np.array(audio.get_array_of_samples())
+        samples = samples.astype(np.float32) / (2 ** (8 * audio.sample_width - 1))
+
         file.seek(0)
         audio_bytes = file.read()
         file_size = len(audio_bytes)
-
         hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
         hash_int = int(hash_obj[:8], 16)
 
-        byte_chunks = [audio_bytes[i:i+1000] for i in range(0, min(len(audio_bytes), 50000), 1000)]
-
-        frequencies = []
-        for chunk in byte_chunks[:20]:
-            chunk_val = sum(chunk) / len(chunk) if chunk else 0
-            freq = 50 + (chunk_val / 255) * 8000
-            frequencies.append(freq)
-
         np.random.seed(hash_int % 2147483647)
 
-        byte_variance = np.var([b for b in audio_bytes[::1000][:100]])
-        bpm = 60 + (byte_variance / 255) * 120
+        # Calcolo BPM simulato basato su variazione dei campioni
+        diff = np.abs(np.diff(samples))
+        energy = np.mean(diff)
+        bpm = 60 + energy * 240
 
-        rms = np.mean([b for b in audio_bytes[::5000][:100]]) / 255 * 0.08
+        rms = np.sqrt(np.mean(samples**2)) * 0.1
 
-        dominant_freq = max(frequencies) if frequencies else 1000
-        spectral_centroid = np.mean(frequencies) if frequencies else 2000
-        harmonics = [dominant_freq * i for i in [1, 1.5, 2, 2.5, 3] if dominant_freq * i < 8000]
-        bass_freq = min(frequencies) if frequencies else 100
-        treble_freq = max(frequencies) if frequencies else 5000
-        dynamic_range = max(frequencies) - min(frequencies) if frequencies else 1000
+        # Frequenza dominante (semplificata)
+        spectrum = np.abs(np.fft.fft(samples[:44100]))
+        freqs = np.fft.fftfreq(len(spectrum), 1.0 / audio.frame_rate)
+        peak_idx = np.argmax(spectrum[:len(spectrum)//2])
+        dominant_freq = abs(freqs[peak_idx])
+
+        spectral_centroid = np.sum(freqs[:len(spectrum)//2] * spectrum[:len(spectrum)//2]) / np.sum(spectrum[:len(spectrum)//2])
+
+        harmonics = [dominant_freq * r for r in [1, 1.5, 2] if dominant_freq * r < 8000]
+        bass_freq = np.min(freqs[np.where(freqs > 20)])
+        treble_freq = np.max(freqs[np.where(freqs < 15000)])
+        dynamic_range = np.max(samples) - np.min(samples)
 
         if bpm > 120 and rms > 0.04:
             emotion = "Energetico"
-            emotion_color = "rosso-arancio"
         elif bpm < 80 and rms < 0.03:
             emotion = "Calmo"
-            emotion_color = "blu-verde"
-        elif dynamic_range > 2000:
+        elif dynamic_range > 1:
             emotion = "Dinamico"
-            emotion_color = "multicolore"
         else:
             emotion = "Equilibrato"
-            emotion_color = "viola-cyan"
 
-        if bpm > 120 and dynamic_range > 1500:
+        if bpm > 120 and dynamic_range > 0.5:
             genre_style = "Elettronica/Dance"
-        elif bpm < 80 and bass_freq < 200:
+        elif bpm < 80:
             genre_style = "Acustica/Classica"
-        elif dynamic_range > 2500:
+        elif dynamic_range > 1.5:
             genre_style = "Rock/Metal"
         else:
             genre_style = "Pop/Indie"
@@ -71,13 +76,11 @@ def analyze_audio_detailed(file) -> dict:
             "rms": rms,
             "dominant_freq": dominant_freq,
             "spectral_centroid": spectral_centroid,
-            "frequencies": frequencies,
             "harmonics": harmonics,
             "bass_freq": bass_freq,
             "treble_freq": treble_freq,
             "dynamic_range": dynamic_range,
             "emotion": emotion,
-            "emotion_color": emotion_color,
             "genre_style": genre_style,
             "file_hash": hash_int,
             "file_size": file_size
@@ -86,94 +89,57 @@ def analyze_audio_detailed(file) -> dict:
         st.error(f"Errore nell'analisi audio: {str(e)}")
         return None
 
-def get_dimensions(format_type):
-    if format_type == "Quadrato (1:1)":
-        return (800, 800)
-    elif format_type == "Verticale (9:16)":
-        return (720, 1280)
-    elif format_type == "Orizzontale (16:9)":
-        return (1280, 720)
-    else:
-        return (800, 800)
+def generate_image(features, size=(800,800)):
+    img = Image.new("RGB", size, color="black")
+    draw = ImageDraw.Draw(img)
+    seed = features['file_hash']
+    random.seed(seed)
+    np.random.seed(seed % 2147483647)
 
-def generate_new_variation():
-    st.session_state.variation_seed = random.randint(0, 999999)
-    st.rerun()
+    base_colors = [(255,0,100), (0,255,150), (150,100,255)]
+    particles = int(features['bpm'])
+    waves = len(features['harmonics'])
+    blocks = int(features['rms'] * 1000)
 
-if 'variation_seed' not in st.session_state:
-    st.session_state.variation_seed = random.randint(0, 999999)
+    for _ in range(particles):
+        x = random.randint(0, size[0])
+        y = random.randint(0, size[1])
+        color = random.choice(base_colors)
+        draw.ellipse([x, y, x+3, y+3], fill=color)
 
-if 'last_file_hash' not in st.session_state:
-    st.session_state.last_file_hash = None
+    for h in features['harmonics']:
+        radius = int(h / 100)
+        cx, cy = random.randint(100, size[0]-100), random.randint(100, size[1]-100)
+        draw.ellipse([cx-radius, cy-radius, cx+radius, cy+radius], outline=random.choice(base_colors))
 
-audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
+    for _ in range(blocks):
+        x = random.randint(0, size[0]-20)
+        y = random.randint(0, size[1]-20)
+        draw.rectangle([x, y, x+10, y+10], fill=random.choice(base_colors))
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    img_format = st.selectbox("Formato file:", ["PNG", "JPEG"])
-with col2:
-    aspect_ratio = st.selectbox("Formato immagine:", ["Quadrato (1:1)", "Verticale (9:16)", "Orizzontale (16:9)"])
-with col3:
-    show_analysis = st.checkbox("Mostra analisi completa", value=True)
+    return img, [
+        f"🎵 **BPM**: {features['bpm']:.1f}",
+        f"📡 **Dominant Frequency**: {features['dominant_freq']:.1f} Hz",
+        f"💥 **Energia RMS**: {features['rms']:.3f}",
+        f"🎭 **Emozione**: {features['emotion']}",
+        f"🎧 **Genere stimato**: {features['genre_style']}"
+    ]
 
-if audio_file:
-    features = analyze_audio_detailed(audio_file)
-
-    if st.session_state.last_file_hash != features['file_hash']:
-        st.session_state.last_file_hash = features['file_hash']
-        st.session_state.variation_seed = random.randint(0, 999999)
-
+# UI
+file = st.file_uploader("🎵 Carica file audio (mp3/wav/ogg)", type=["mp3", "wav", "ogg"])
+if file:
+    features = analyze_audio_detailed(file)
     if features:
-        if show_analysis:
-            st.subheader("🔍 Analisi Audio Dettagliata:")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("🎵 BPM", f"{features['bpm']:.1f}")
-                st.metric("🔊 Energia RMS", f"{features['rms']:.3f}")
-                st.metric("📡 Freq. Dominante", f"{features['dominant_freq']:.0f} Hz")
-                st.metric("🎼 Centro Spettrale", f"{features['spectral_centroid']:.0f} Hz")
-            with col2:
-                st.metric("🎸 Bassi", f"{features['bass_freq']:.0f} Hz")
-                st.metric("🎺 Acuti", f"{features['treble_freq']:.0f} Hz")
-                st.metric("📊 Gamma Dinamica", f"{features['dynamic_range']:.0f} Hz")
-                st.metric("🎭 Emozione", features['emotion'])
-            st.info(f"**Genere stimato**: {features['genre_style']}")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🎲 Genera nuova variante", use_container_width=True):
-                generate_new_variation()
-        with col2:
-            quality = st.selectbox("Qualità:", ["Standard", "Alta"])
-
-        dimensions = get_dimensions(aspect_ratio)
-        if quality == "Alta":
-            dimensions = (int(dimensions[0] * 1.5), int(dimensions[1] * 1.5))
-
-        with st.spinner("🎨 Creando copertina basata sulle caratteristiche audio..."):
-            img = Image.new("RGB", dimensions, "black")
-            draw = ImageDraw.Draw(img)
-            description = [f"💡 Copertina generata con BPM: {features['bpm']:.1f}, Dominant Freq: {features['dominant_freq']:.0f} Hz"]
-            draw.text((10, 10), f"{features['emotion']} | {features['genre_style']}", fill="white")
-
-        st.image(img, caption=f"🎨 Copertina glitch generata - {aspect_ratio}", use_container_width=True)
-
-        st.subheader("🎨 Descrizione della copertina:")
-        for desc in description:
-            st.markdown(desc)
+        dim = st.selectbox("Formato immagine", ["Quadrato", "Verticale", "Orizzontale"])
+        w, h = (800,800) if dim=="Quadrato" else (720,1280) if dim=="Verticale" else (1280,720)
+        img, desc = generate_image(features, size=(w,h))
+        st.image(img, caption="🎨 Copertina generata", use_container_width=True)
+        st.subheader("🧠 Analisi del brano:")
+        for d in desc:
+            st.markdown(d)
 
         buf = io.BytesIO()
-        img.save(buf, format=img_format)
-        byte_im = buf.getvalue()
-
-        filename = f"glitch_cover_{features['genre_style'].replace('/', '_')}_{int(time.time())}.{img_format.lower()}"
-        st.download_button(
-            label=f"⬇️ Scarica {img_format} ({dimensions[0]}x{dimensions[1]})",
-            data=byte_im,
-            file_name=filename,
-            mime=f"image/{img_format.lower()}",
-            use_container_width=True
-        )
-
+        img.save(buf, format="PNG")
+        st.download_button("⬇️ Scarica copertina", data=buf.getvalue(), file_name="glitchcover.png", mime="image/png")
 else:
-    st.info("👆 Carica un file audio per iniziare!")
+    st.info("Carica un file audio per iniziare")
