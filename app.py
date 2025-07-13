@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import io
 import random
-from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageOps, ImageFilter
 import hashlib
 import time
 import math
@@ -10,8 +10,7 @@ import math
 st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
 st.title("🎧 GlitchCover Studio by Loop507 [Free App]")
-st.write("Carica un brano audio e genera una copertina glitch ispirata al suono.")
-st.write("Limit 200MB • MP3, WAV, OGG")
+st.markdown("Crea una copertina glitch unica basata sul tuo brano. Carica un file audio e genera arte ispirata al suono.")
 
 def get_dimensions(format_type):
     if format_type == "Quadrato (1:1)":
@@ -82,35 +81,34 @@ def apply_glitch_effect(img, seed):
     img = img.convert("RGB")
     width, height = img.size
 
-    # Split channels
+    # RGB Split
     r, g, b = img.split()
     r = ImageOps.offset(r, random.randint(-5, 5), random.randint(-5, 5))
     g = ImageOps.offset(g, random.randint(-5, 5), random.randint(-5, 5))
     b = ImageOps.offset(b, random.randint(-5, 5), random.randint(-5, 5))
     img = Image.merge("RGB", (r, g, b))
 
-    # Noise
-    draw = ImageDraw.Draw(img)
-    for _ in range(100):
+    # Noise overlay
+    noise = Image.new("RGB", img.size, "black")
+    draw = ImageDraw.Draw(noise)
+    for _ in range(150):
         x = random.randint(0, width)
         y = random.randint(0, height)
         color = tuple(random.randint(0, 255) for _ in range(3))
         draw.point((x, y), fill=color)
+    img = Image.blend(img, noise, alpha=0.05)
 
-    # Lines
-    for _ in range(5):
-        x1 = random.randint(0, width)
-        y1 = random.randint(0, height)
-        x2 = random.randint(0, width)
-        y2 = random.randint(0, height)
-        color = tuple(random.randint(0, 255) for _ in range(3))
-        draw.line((x1, y1, x2, y2), fill=color, width=2)
+    # Scanlines
+    scanline_img = Image.new("RGB", img.size, "black")
+    draw = ImageDraw.Draw(scanline_img)
+    for y in range(0, height, 2):
+        draw.line([(0, y), (width, y)], fill=(10, 10, 10))
+    img = Image.blend(img, scanline_img, alpha=0.1)
 
-    # Blur or pixelate
+    # Pixelation effect
     if random.random() < 0.5:
-        img = img.filter(ImageFilter.GaussianBlur(radius=2))
-    else:
-        img = img.resize((width // 4, height // 4), Image.NEAREST).resize((width, height), Image.NEAREST)
+        small = img.resize((width // 8, height // 8), Image.BILINEAR)
+        img = small.resize(img.size, Image.NEAREST)
 
     return img
 
@@ -122,14 +120,14 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     img = Image.new("RGB", size, "black")
     draw = ImageDraw.Draw(img)
 
-    if features['emotion'] == "Energetico":
-        colors = [(255, 70, 30), (255, 140, 0), (255, 90, 60)]
-    elif features['emotion'] == "Calmo":
-        colors = [(30, 90, 160), (60, 120, 130), (0, 160, 130)]
-    elif features['emotion'] == "Dinamico":
-        colors = [(255, 0, 120), (0, 255, 70), (60, 90, 255), (255, 255, 0)]
-    else:
-        colors = [(130, 0, 180), (0, 160, 160), (160, 120, 255)]
+    # Palette
+    palettes = {
+        "Energetico": [(255, 70, 30), (255, 140, 0), (255, 90, 60)],
+        "Calmo": [(30, 90, 160), (60, 120, 130), (0, 160, 130)],
+        "Dinamico": [(255, 0, 120), (0, 255, 70), (60, 90, 255), (255, 255, 0)],
+        "Equilibrato": [(130, 0, 180), (0, 160, 160), (160, 120, 255)]
+    }
+    colors = palettes.get(features["emotion"], palettes["Equilibrato"])
 
     block_size = max(5, int(features["rms"] * 100))
     for x in range(0, width, block_size):
@@ -156,15 +154,29 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     img = apply_glitch_effect(img, seed)
 
     description = [
-        f"🎵 BPM stimati: {features['bpm']:.1f}",
-        f"🔊 Energia (RMS): {features['rms']:.3f}",
+        f"🎵 Stile: {features['emotion']}",
+        f"🔊 Intensità sonora: {features['rms']:.3f}",
         f"📡 Frequenza dominante: {features['dominant_freq']:.0f} Hz",
-        f"🎼 Centro spettrale medio: {features['spectral_centroid']:.0f} Hz",
-        f"🎭 Emozione: {features['emotion']}",
-        f"🎸 Genere/Stile stimato: {features['genre_style']}"
+        f"🎼 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
+        f"🎭 Genere stimato: {features['genre_style']}"
     ]
 
-    return img, description
+    mood_descriptions = {
+        "Energetico": "Un'esplosione di energia pura. Frequenze alte e impulsi veloci.",
+        "Calmo": "Un'atmosfera sognante e rilassata, adatta a notti tranquille.",
+        "Dinamico": "Contrasti netti tra ombra e luce, caos controllato.",
+        "Equilibrato": "Armonia perfetta tra ritmo e toni, ideale per ogni ascolto."
+    }
+
+    mood_desc = mood_descriptions.get(features['emotion'], "Stile audio unico e indefinibile.")
+
+    full_description = {
+        "header": f"Album Art — {features['emotion']} Style",
+        "mood": mood_desc,
+        "details": description
+    }
+
+    return img, full_description
 
 # --- UI ---
 audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
@@ -205,8 +217,10 @@ if audio_file:
 
         st.image(img, caption=f"Copertina glitch generata - {aspect_ratio}", use_container_width=True)
 
-        st.subheader("🎨 Descrizione copertina:")
-        for d in description:
+        st.markdown("### 🎨 Descrizione Artistica")
+        st.markdown(f"**{description['header']}**")
+        st.markdown(description['mood'])
+        for d in description['details']:
             st.markdown(d)
 
         buf = io.BytesIO()
