@@ -121,7 +121,6 @@ def analyze_audio_librosa(file):
         return None
 
 def create_advanced_noise_pattern(size, features, seed):
-    """Crea pattern di rumore avanzato basato sull'audio"""
     try:
         random.seed(seed)
         np.random.seed(seed % 2**32)
@@ -154,7 +153,6 @@ def create_advanced_noise_pattern(size, features, seed):
         return Image.fromarray(fallback, 'RGB')
 
 def create_frequency_visualization(features, size, seed):
-    """Crea visualizzazione basata sulle frequenze"""
     try:
         random.seed(seed)
         width, height = size
@@ -252,7 +250,6 @@ def create_frequency_visualization(features, size, seed):
         return fallback
 
 def apply_advanced_chromatic_aberration(img, features, seed):
-    """Aberrazione cromatica avanzata basata sull'audio"""
     try:
         random.seed(seed)
 
@@ -282,7 +279,6 @@ def apply_advanced_chromatic_aberration(img, features, seed):
         return img
 
 def apply_audio_driven_datamoshing(img, features, seed):
-    """Datamoshing semplificato guidato dall'audio"""
     try:
         random.seed(seed)
         width, height = img.size
@@ -320,7 +316,6 @@ def apply_audio_driven_datamoshing(img, features, seed):
         return img
 
 def generate_advanced_glitch_image(features, seed, size=(800, 800)):
-    """Genera immagine glitch avanzata basata su audio"""
     try:
         random.seed(seed)
         np.random.seed(seed % 2**32)
