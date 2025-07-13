@@ -1,5 +1,3 @@
-# GlitchCover Studio by Loop507 - Versione Migliorata
-
 import streamlit as st
 import numpy as np
 import io
