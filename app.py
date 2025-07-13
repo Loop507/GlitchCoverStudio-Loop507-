@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import io
 import random
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 import hashlib
 import time
 import math
@@ -29,24 +29,20 @@ def analyze_audio_simple(file):
         audio_bytes = bytearray(file.read())
         file_size = len(audio_bytes)
 
-        # Genera un hash unico basato sui primi byte
         hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
         hash_int = int(hash_obj[:8], 16)
 
         random.seed(hash_int % 2147483647)
         np.random.seed(hash_int % 2147483647)
 
-        # Estrai dati pseudo-audio dai byte
         sample_points = [audio_bytes[i % len(audio_bytes)] for i in range(hash_int % 100 + 100)]
 
-        # Features simulate
         bpm = 60 + (sum(sample_points[:20]) / len(sample_points[:20])) * 120 / 255
         rms = sum(sample_points[20:40]) / len(sample_points[20:40]) / 255 * 0.1
         dominant_freq = (sum(sample_points[40:60]) / len(sample_points[40:60])) * 10000 / 255
         spectral_centroid = (sum(sample_points[60:80]) / len(sample_points[60:80])) * 5000 / 255
         dynamic_range = abs(dominant_freq - spectral_centroid)
 
-        # Emozione
         if rms > 0.05 and dominant_freq > 2000:
             emotion = "Energetico"
         elif rms < 0.02 and dominant_freq < 500:
@@ -56,7 +52,6 @@ def analyze_audio_simple(file):
         else:
             emotion = "Equilibrato"
 
-        # Genere stilizzato
         if dominant_freq > 2000 and bpm > 110:
             genre_style = "Elettronica/Dance"
         elif dominant_freq < 500 and bpm < 80:
@@ -82,6 +77,43 @@ def analyze_audio_simple(file):
         st.error(f"Errore nell'analisi audio: {str(e)}")
         return None
 
+def apply_glitch_effect(img, seed):
+    random.seed(seed)
+    img = img.convert("RGB")
+    width, height = img.size
+
+    # Split channels
+    r, g, b = img.split()
+    r = ImageOps.offset(r, random.randint(-5, 5), random.randint(-5, 5))
+    g = ImageOps.offset(g, random.randint(-5, 5), random.randint(-5, 5))
+    b = ImageOps.offset(b, random.randint(-5, 5), random.randint(-5, 5))
+    img = Image.merge("RGB", (r, g, b))
+
+    # Noise
+    draw = ImageDraw.Draw(img)
+    for _ in range(100):
+        x = random.randint(0, width)
+        y = random.randint(0, height)
+        color = tuple(random.randint(0, 255) for _ in range(3))
+        draw.point((x, y), fill=color)
+
+    # Lines
+    for _ in range(5):
+        x1 = random.randint(0, width)
+        y1 = random.randint(0, height)
+        x2 = random.randint(0, width)
+        y2 = random.randint(0, height)
+        color = tuple(random.randint(0, 255) for _ in range(3))
+        draw.line((x1, y1, x2, y2), fill=color, width=2)
+
+    # Blur or pixelate
+    if random.random() < 0.5:
+        img = img.filter(ImageFilter.GaussianBlur(radius=2))
+    else:
+        img = img.resize((width // 4, height // 4), Image.NEAREST).resize((width, height), Image.NEAREST)
+
+    return img
+
 def generate_glitch_image(features, seed, size=(800, 800)):
     random.seed(seed)
     np.random.seed(seed % 2147483647)
@@ -90,7 +122,6 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     img = Image.new("RGB", size, "black")
     draw = ImageDraw.Draw(img)
 
-    # Palette colori
     if features['emotion'] == "Energetico":
         colors = [(255, 70, 30), (255, 140, 0), (255, 90, 60)]
     elif features['emotion'] == "Calmo":
@@ -100,7 +131,6 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     else:
         colors = [(130, 0, 180), (0, 160, 160), (160, 120, 255)]
 
-    # Blocchi di colore
     block_size = max(5, int(features["rms"] * 100))
     for x in range(0, width, block_size):
         for y in range(0, height, block_size):
@@ -108,7 +138,6 @@ def generate_glitch_image(features, seed, size=(800, 800)):
             color = tuple(max(0, min(255, c + jitter)) for c in random.choice(colors))
             draw.rectangle([x, y, x + block_size, y + block_size], fill=color)
 
-    # Linee diagonali
     line_count = int(features["dynamic_range"] // 1000) + 3
     for _ in range(line_count):
         start_x = random.randint(0, width)
@@ -117,13 +146,14 @@ def generate_glitch_image(features, seed, size=(800, 800)):
         end_y = height if start_y == 0 else 0
         draw.line((start_x, start_y, end_x, end_y), fill=random.choice(colors), width=2)
 
-    # Cerchi pulsanti
     circle_count = int(features["bpm"] // 10)
     for _ in range(circle_count):
         cx = random.randint(0, width)
         cy = random.randint(0, height)
         r = int(features["rms"] * 100) + random.randint(5, 20)
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=2)
+
+    img = apply_glitch_effect(img, seed)
 
     description = [
         f"🎵 BPM stimati: {features['bpm']:.1f}",
@@ -136,7 +166,7 @@ def generate_glitch_image(features, seed, size=(800, 800)):
 
     return img, description
 
-# --- UI Streamlit ---
+# --- UI ---
 audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
 
 col1, col2, col3 = st.columns(3)
@@ -146,6 +176,9 @@ with col2:
     aspect_ratio = st.selectbox("Formato dimensioni:", ["Quadrato (1:1)", "Verticale (9:16)", "Orizzontale (16:9)"])
 with col3:
     show_analysis = st.checkbox("Mostra analisi", value=True)
+
+if 'regen_count' not in st.session_state:
+    st.session_state.regen_count = 0
 
 if audio_file:
     features = analyze_audio_simple(audio_file)
@@ -160,7 +193,12 @@ if audio_file:
             st.write(f"Genere stimato: {features['genre_style']}")
 
         dimensions = get_dimensions(aspect_ratio)
-        seed = features['file_hash']
+        base_seed = features['file_hash']
+
+        if st.button("🔄 Rigenera Copertina"):
+            st.session_state.regen_count += 1
+
+        seed = base_seed + st.session_state.regen_count
 
         with st.spinner("🎨 Creazione copertina glitch..."):
             img, description = generate_glitch_image(features, seed, size=dimensions)
@@ -184,4 +222,5 @@ if audio_file:
         )
 
 else:
+    st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
