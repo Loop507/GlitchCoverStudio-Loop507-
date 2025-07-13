@@ -2,10 +2,9 @@ import streamlit as st
 import numpy as np
 import io
 import random
-from PIL import Image, ImageDraw, ImageOps, ImageFilter
+from PIL import Image, ImageDraw, ImageOps
 import hashlib
 import time
-import math
 
 st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
@@ -81,34 +80,28 @@ def apply_glitch_effect(img, seed):
     img = img.convert("RGB")
     width, height = img.size
 
-    # RGB Split
+    # RGB Split estremo
     r, g, b = img.split()
-    r = ImageOps.offset(r, random.randint(-5, 5), random.randint(-5, 5))
-    g = ImageOps.offset(g, random.randint(-5, 5), random.randint(-5, 5))
-    b = ImageOps.offset(b, random.randint(-5, 5), random.randint(-5, 5))
+    r = ImageOps.offset(r, random.randint(-10, 10), random.randint(-10, 10))
+    g = ImageOps.offset(g, random.randint(-10, 10), random.randint(-10, 10))
+    b = ImageOps.offset(b, random.randint(-10, 10), random.randint(-10, 10))
     img = Image.merge("RGB", (r, g, b))
 
-    # Noise overlay
-    noise = Image.new("RGB", img.size, "black")
-    draw = ImageDraw.Draw(noise)
-    for _ in range(150):
+    # Artefatti digitali
+    draw = ImageDraw.Draw(img)
+    for _ in range(100):
         x = random.randint(0, width)
         y = random.randint(0, height)
         color = tuple(random.randint(0, 255) for _ in range(3))
         draw.point((x, y), fill=color)
-    img = Image.blend(img, noise, alpha=0.05)
 
-    # Scanlines
-    scanline_img = Image.new("RGB", img.size, "black")
-    draw = ImageDraw.Draw(scanline_img)
-    for y in range(0, height, 2):
-        draw.line([(0, y), (width, y)], fill=(10, 10, 10))
-    img = Image.blend(img, scanline_img, alpha=0.1)
+    # Linee orizzontali glitch (scanlines)
+    for y in range(0, height, 3):
+        draw.line([(0, y), (width, y)], fill=(random.randint(0, 50), random.randint(0, 50), random.randint(0, 50)))
 
-    # Pixelation effect
-    if random.random() < 0.5:
-        small = img.resize((width // 8, height // 8), Image.BILINEAR)
-        img = small.resize(img.size, Image.NEAREST)
+    # Pixelation forte
+    small = img.resize((width // 10, height // 10), Image.BILINEAR)
+    img = small.resize(img.size, Image.NEAREST)
 
     return img
 
@@ -120,7 +113,6 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     img = Image.new("RGB", size, "black")
     draw = ImageDraw.Draw(img)
 
-    # Palette
     palettes = {
         "Energetico": [(255, 70, 30), (255, 140, 0), (255, 90, 60)],
         "Calmo": [(30, 90, 160), (60, 120, 130), (0, 160, 130)],
@@ -179,6 +171,9 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     return img, full_description
 
 # --- UI ---
+if 'regen_count' not in st.session_state:
+    st.session_state.regen_count = 0
+
 audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3, WAV, OGG)", type=["mp3", "wav", "ogg"])
 
 col1, col2, col3 = st.columns(3)
@@ -189,21 +184,9 @@ with col2:
 with col3:
     show_analysis = st.checkbox("Mostra analisi", value=True)
 
-if 'regen_count' not in st.session_state:
-    st.session_state.regen_count = 0
-
 if audio_file:
     features = analyze_audio_simple(audio_file)
     if features:
-        st.subheader("🔍 Analisi Audio:")
-        if show_analysis:
-            st.write(f"BPM stimati: {features['bpm']:.1f}")
-            st.write(f"Energia (RMS): {features['rms']:.3f}")
-            st.write(f"Frequenza dominante: {features['dominant_freq']:.0f} Hz")
-            st.write(f"Centro spettrale medio: {features['spectral_centroid']:.0f} Hz")
-            st.write(f"Emozione: {features['emotion']}")
-            st.write(f"Genere stimato: {features['genre_style']}")
-
         dimensions = get_dimensions(aspect_ratio)
         base_seed = features['file_hash']
 
