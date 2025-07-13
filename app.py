@@ -2,10 +2,11 @@ import streamlit as st
 import numpy as np
 import io
 import random
-from PIL import Image, ImageDraw, ImageChops
+from PIL import Image, ImageDraw, ImageOps
 import hashlib
 import time
 import librosa
+import tempfile
 
 st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
@@ -24,53 +25,49 @@ def get_dimensions(format_type):
 
 def analyze_audio_real(file) -> dict:
     try:
-        file.seek(0)
-        data, sr = librosa.load(file, sr=None, mono=True)
-        
-        # BPM (tempo)
-        tempo, _ = librosa.beat.beat_track(y=data, sr=sr)
+        # Salvo temporaneamente il file per lettura sicura con librosa
+        with tempfile.NamedTemporaryFile(delete=True) as tmp:
+            tmp.write(file.read())
+            tmp.flush()
+            data, sr = librosa.load(tmp.name, sr=None, mono=True)
 
-        # RMS energy (volume)
-        rms = np.mean(librosa.feature.rms(y=data))
+            tempo, _ = librosa.beat.beat_track(y=data, sr=sr)
+            rms = np.mean(librosa.feature.rms(y=data))
+            spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=data, sr=sr))
+            spectral_bandwidth = np.mean(librosa.feature.spectral_bandwidth(y=data, sr=sr))
+            f0, voiced_flag, voiced_probs = librosa.pyin(data, 
+                                                         fmin=librosa.note_to_hz('C2'), 
+                                                         fmax=librosa.note_to_hz('C7'))
+            fundamental_freq = np.nanmean(f0)
+            if np.isnan(fundamental_freq):
+                fundamental_freq = spectral_centroid
 
-        # Spectral centroid (frequenza dominante percepita)
-        spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=data, sr=sr))
+            # Hash file
+            tmp.seek(0)
+            audio_bytes = tmp.read()
+            hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
+            hash_int = int(hash_obj[:8], 16)
 
-        # Spectral bandwidth (variazione frequenze)
-        spectral_bandwidth = np.mean(librosa.feature.spectral_bandwidth(y=data, sr=sr))
+            if tempo > 120 and rms > 0.05:
+                emotion = "Energetico"
+            elif tempo < 80 and rms < 0.02:
+                emotion = "Calmo"
+            elif spectral_bandwidth > 4000:
+                emotion = "Dinamico"
+            else:
+                emotion = "Equilibrato"
 
-        # Frequenza fondamentale stimata con autocorrelazione
-        f0, voiced_flag, voiced_probs = librosa.pyin(data, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
-        fundamental_freq = np.nanmean(f0)
-        if np.isnan(fundamental_freq):
-            fundamental_freq = spectral_centroid  # fallback
+            return {
+                "bpm": tempo,
+                "rms": rms,
+                "spectral_centroid": spectral_centroid,
+                "spectral_bandwidth": spectral_bandwidth,
+                "fundamental_freq": fundamental_freq,
+                "emotion": emotion,
+                "file_hash": hash_int,
+                "file_size": len(audio_bytes)
+            }
 
-        # Creiamo un hash sul file per seed casuale
-        file.seek(0)
-        audio_bytes = file.read()
-        hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
-        hash_int = int(hash_obj[:8], 16)
-
-        # Determiniamo l'emozione in base a bpm e rms
-        if tempo > 120 and rms > 0.05:
-            emotion = "Energetico"
-        elif tempo < 80 and rms < 0.02:
-            emotion = "Calmo"
-        elif spectral_bandwidth > 4000:
-            emotion = "Dinamico"
-        else:
-            emotion = "Equilibrato"
-
-        return {
-            "bpm": tempo,
-            "rms": rms,
-            "spectral_centroid": spectral_centroid,
-            "spectral_bandwidth": spectral_bandwidth,
-            "fundamental_freq": fundamental_freq,
-            "emotion": emotion,
-            "file_hash": hash_int,
-            "file_size": len(audio_bytes)
-        }
     except Exception as e:
         st.error(f"Errore nell'analisi audio: {str(e)}")
         return None
@@ -80,105 +77,81 @@ def apply_glitch_effect(img, seed):
     img = img.convert("RGB")
     width, height = img.size
 
+    from PIL import ImageChops
+
     r, g, b = img.split()
-    r = ImageChops.offset(r, random.randint(-15, 15), random.randint(-15, 15))
-    g = ImageChops.offset(g, random.randint(-15, 15), random.randint(-15, 15))
-    b = ImageChops.offset(b, random.randint(-15, 15), random.randint(-15, 15))
+    r = ImageChops.offset(r, random.randint(-10, 10), random.randint(-10, 10))
+    g = ImageChops.offset(g, random.randint(-10, 10), random.randint(-10, 10))
+    b = ImageChops.offset(b, random.randint(-10, 10), random.randint(-10, 10))
     img = Image.merge("RGB", (r, g, b))
 
     draw = ImageDraw.Draw(img)
-    # pixel glitch casuali
-    for _ in range(200):
+    for _ in range(100):
         x = random.randint(0, width - 1)
         y = random.randint(0, height - 1)
         color = tuple(random.randint(0, 255) for _ in range(3))
         draw.point((x, y), fill=color)
 
-    # linee orizzontali sottili glitch
-    for y in range(0, height, 2):
+    for y in range(0, height, 3):
         draw.line([(0, y), (width, y)], fill=(random.randint(0, 50), random.randint(0, 50), random.randint(0, 50)))
 
-    # pixelation forte
-    small = img.resize((max(1,width // 15), max(1,height // 15)), Image.BILINEAR)
+    small = img.resize((max(1, width // 10), max(1, height // 10)), Image.BILINEAR)
     img = small.resize(img.size, Image.NEAREST)
 
     return img
 
 def generate_glitch_image(features, seed, size=(800, 800)):
     random.seed(seed)
+    np.random.seed(seed % 2147483647)
     width, height = size
 
     img = Image.new("RGB", size, "black")
     draw = ImageDraw.Draw(img)
 
-    # Palette basata sull'emozione
     palettes = {
-        "Energetico": [(255, 50, 20), (255, 150, 10), (255, 80, 60)],
-        "Calmo": [(20, 90, 160), (40, 130, 180), (10, 160, 130)],
-        "Dinamico": [(255, 0, 150), (0, 255, 100), (60, 80, 255), (255, 255, 60)],
-        "Equilibrato": [(120, 0, 180), (0, 150, 150), (160, 120, 255)]
+        "Energetico": [(255, 70, 30), (255, 140, 0), (255, 90, 60)],
+        "Calmo": [(30, 90, 160), (60, 120, 130), (0, 160, 130)],
+        "Dinamico": [(255, 0, 120), (0, 255, 70), (60, 90, 255), (255, 255, 0)],
+        "Equilibrato": [(130, 0, 180), (0, 160, 160), (160, 120, 255)]
     }
     colors = palettes.get(features["emotion"], palettes["Equilibrato"])
 
-    # Blocchi colorati che reagiscono a RMS e frequenza fondamentale
-    block_size = max(6, int(features["rms"] * 200))
-    freq_factor = min(1.0, features["fundamental_freq"] / 4000)
+    block_size = max(5, int(features["rms"] * 100))
     for x in range(0, width, block_size):
         for y in range(0, height, block_size):
-            jitter = random.randint(-40, 40)
-            base_color = random.choice(colors)
-            # Modifico la luminosità in base alla frequenza fondamentale
-            color = tuple(
-                max(0, min(255, int(c * freq_factor) + jitter))
-                for c in base_color
-            )
+            jitter = random.randint(-30, 30)
+            color = tuple(max(0, min(255, c + jitter)) for c in random.choice(colors))
             draw.rectangle([x, y, x + block_size, y + block_size], fill=color)
 
-    # Linee diagonali glitch in numero proporzionale a bpm
-    line_count = max(3, int(features["bpm"] // 30))
+    line_count = int(features["spectral_bandwidth"] // 1000) + 3
     for _ in range(line_count):
         start_x = random.randint(0, width)
-        start_y = 0
+        start_y = 0 if random.random() < 0.5 else height
         end_x = random.randint(0, width)
-        end_y = height
+        end_y = height if start_y == 0 else 0
         draw.line((start_x, start_y, end_x, end_y), fill=random.choice(colors), width=2)
 
-    # Cerchi glitch con raggio basato su rms e frequenza fondamentale
-    circle_count = max(5, int(features["rms"] * 100 * freq_factor))
+    circle_count = int(features["bpm"] // 10)
     for _ in range(circle_count):
         cx = random.randint(0, width)
         cy = random.randint(0, height)
-        r = int(features["rms"] * 150) + random.randint(5, 30)
+        r = int(features["rms"] * 100) + random.randint(5, 20)
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=2)
 
     img = apply_glitch_effect(img, seed)
 
     description = [
-        f"🎵 BPM: {features['bpm']:.1f}",
-        f"🔊 RMS Energy: {features['rms']:.4f}",
-        f"📡 Frequenza Fondamentale Stimata: {features['fundamental_freq']:.0f} Hz",
-        f"🎼 Centro Spettrale: {features['spectral_centroid']:.0f} Hz",
-        f"🌈 Emozione: {features['emotion']}",
+        f"🎵 Emozione rilevata: {features['emotion']}",
+        f"🔊 Energia RMS: {features['rms']:.3f}",
+        f"📡 Frequenza fondamentale stimata: {features['fundamental_freq']:.0f} Hz",
+        f"🎼 Centro spettrale: {features['spectral_centroid']:.0f} Hz",
+        f"📊 Larghezza di banda spettrale: {features['spectral_bandwidth']:.0f} Hz",
+        f"⏱️ BPM stimati: {features['bpm']:.1f}"
     ]
 
-    mood_descriptions = {
-        "Energetico": "Energia vibrante, frequenze alte e ritmo sostenuto.",
-        "Calmo": "Atmosfera rilassata, toni morbidi e ritmo lento.",
-        "Dinamico": "Contrasti marcati e ritmo variabile.",
-        "Equilibrato": "Equilibrio armonico tra ritmo e toni."
-    }
+    return img, description
 
-    mood_desc = mood_descriptions.get(features['emotion'], "Stile audio unico e indefinibile.")
-
-    full_description = {
-        "header": f"Glitch Art — {features['emotion']}",
-        "mood": mood_desc,
-        "details": description
-    }
-
-    return img, full_description
-
-# UI
+# --- UI ---
 if 'regen_count' not in st.session_state:
     st.session_state.regen_count = 0
 
@@ -208,11 +181,10 @@ if audio_file:
 
         st.image(img, caption=f"Copertina glitch generata - {aspect_ratio}", use_container_width=True)
 
-        st.markdown("### 🎨 Descrizione Tecnica")
-        st.markdown(f"**{description['header']}**")
-        st.markdown(description['mood'])
-        for d in description['details']:
-            st.markdown(d)
+        if show_analysis:
+            st.markdown("### 🎨 Descrizione Tecnica")
+            for d in description:
+                st.markdown(d)
 
         buf = io.BytesIO()
         img.save(buf, format=img_format)
@@ -225,6 +197,7 @@ if audio_file:
             file_name=filename,
             mime=f"image/{img_format.lower()}"
         )
+
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
