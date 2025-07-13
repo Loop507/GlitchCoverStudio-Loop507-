@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import io
 import random
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageOps, ImageFilter
 import hashlib
 import time
 import math
@@ -13,7 +13,6 @@ st.title("🎧 GlitchCover Studio by Loop507 [Free App]")
 st.markdown("Crea una copertina glitch unica basata sul tuo brano. Carica un file audio e genera arte ispirata al suono.")
 
 # Dimensioni immagine
-
 def get_dimensions(format_type):
     return {
         "Quadrato (1:1)": (800, 800),
@@ -22,7 +21,6 @@ def get_dimensions(format_type):
     }.get(format_type, (800, 800))
 
 # Analisi audio semplificata dai byte
-
 def analyze_audio_simple(file) -> dict:
     file.seek(0)
     audio_bytes = file.read()
@@ -40,7 +38,7 @@ def analyze_audio_simple(file) -> dict:
     spectral_centroid = (np.mean(vals[20:40]) / 255) * 5000
     dynamic_range = abs(dominant_freq - spectral_centroid)
 
-    # Stime emozione e genere
+    # Stima emozione
     if bpm > 120 and rms > 0.05:
         emotion = "Energetico"
     elif bpm < 80 and rms < 0.02:
@@ -50,15 +48,6 @@ def analyze_audio_simple(file) -> dict:
     else:
         emotion = "Equilibrato"
 
-    if dominant_freq > 2000 and bpm > 110:
-        genre_style = "Elettronica/Dance"
-    elif dominant_freq < 500 and bpm < 80:
-        genre_style = "Acustica/Classica"
-    elif dynamic_range > 2000:
-        genre_style = "Rock/Metal"
-    else:
-        genre_style = "Pop/Indie"
-
     return {
         "bpm": bpm,
         "rms": rms,
@@ -66,12 +55,10 @@ def analyze_audio_simple(file) -> dict:
         "spectral_centroid": spectral_centroid,
         "dynamic_range": dynamic_range,
         "emotion": emotion,
-        "genre_style": genre_style,
         "file_hash": hash_int
     }
 
-# Glitch image generator avanzato
-
+# Generatore di immagini glitch avanzato
 def generate_glitch_image(features, seed, size=(800,800)):
     random.seed(seed)
     np.random.seed(seed)
@@ -79,16 +66,16 @@ def generate_glitch_image(features, seed, size=(800,800)):
     img = Image.new("RGB", size, "black")
     draw = ImageDraw.Draw(img)
 
-    # Palette in base all'emozione
+    # Palette in base all'emozione\    
     palettes = {
         "Energetico": [(255,70,30),(255,140,0),(255,90,60)],
         "Calmo": [(30,90,160),(60,120,130),(0,160,130)],
         "Dinamico": [(255,0,120),(0,255,70),(60,90,255),(255,255,0)],
         "Equilibrato": [(130,0,180),(0,160,160),(160,120,255)]
     }
-    colors = palettes[features["emotion"]]
+    colors = palettes.get(features["emotion"], palettes["Equilibrato"])  
 
-    # Blocchi colorati
+    # Blocchi colorati\    
     block = max(5, int(features["rms"] * 100))
     for x in range(0, width, block):
         for y in range(0, height, block):
@@ -110,12 +97,11 @@ def generate_glitch_image(features, seed, size=(800,800)):
         r = random.randint(5, 20)
         draw.ellipse([cx-r,cy-r,cx+r,cy+r], outline=random.choice(colors), width=2)
 
-    # Effetto finale glitch
+    # Effetto finale blur
     img = img.filter(ImageFilter.GaussianBlur(radius=1))
     return img
 
 # UI Streamlit
-
 audio_file = st.file_uploader("🎵 Carica il tuo brano (MP3, WAV, OGG)", type=["mp3","wav","ogg"])
 col1,col2,col3 = st.columns(3)
 with col1:
@@ -132,15 +118,13 @@ if audio_file:
 
     if show_analysis:
         st.subheader("🔍 Analisi Audio")
-        st.write(f"BPM: {features['bpm']:.1f}")
-        st.write(f"RMS: {features['rms']:.3f}")
-        st.write(f"Dominant Freq: {features['dominant_freq']:.0f} Hz")
-        st.write(f"Spectral Centroid: {features['spectral_centroid']:.0f} Hz")
-        st.write(f"Dynamic Range: {features['dynamic_range']:.0f}")
-        st.write(f"Emozione: {features['emotion']}")
-        st.write(f"Genere/Stile: {features['genre_style']}")
+        st.write(f"**BPM**: {features['bpm']:.1f}")
+        st.write(f"**RMS**: {features['rms']:.3f}")
+        st.write(f"**Dominant Freq**: {features['dominant_freq']:.0f} Hz")
+        st.write(f"**Spectral Centroid**: {features['spectral_centroid']:.0f} Hz")
+        st.write(f"**Dynamic Range**: {features['dynamic_range']:.0f}")
+        st.write(f"**Emozione**: {features['emotion']}")
 
-    # Generazione immagine avanzata
     with st.spinner("🎨 Generazione copertina glitch..."):
         img = generate_glitch_image(features, seed, size=dimensions)
 
@@ -154,7 +138,6 @@ if audio_file:
     st.markdown(f"- **Centro Spettrale**: {features['spectral_centroid']:.0f} Hz")
     st.markdown(f"- **Gamma Dinamica**: {features['dynamic_range']:.0f}")
     st.markdown(f"- **Emozione**: {features['emotion']}")
-    st.markdown(f"- **Genere/Stile**: {features['genre_style']}")
 
     # Download
     buf = io.BytesIO()
