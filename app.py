@@ -29,16 +29,17 @@ def analyze_audio_librosa(file):
         y, sr = librosa.load(io.BytesIO(audio_bytes), sr=None, mono=True, duration=30)
 
         bpm, _ = librosa.beat.beat_track(y=y, sr=sr)
+        if not bpm or bpm == 0:
+            bpm = 60  # default se bpm non rilevato
+
         rms = np.mean(librosa.feature.rms(y=y))
         spectral_centroid = np.mean(librosa.feature.spectral_centroid(y=y, sr=sr))
         spectral_bandwidth = np.mean(librosa.feature.spectral_bandwidth(y=y, sr=sr))
         dynamic_range = spectral_bandwidth - spectral_centroid
 
-        # Hash per seed basato su file
         hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
         hash_int = int(hash_obj[:8], 16)
 
-        # Definisci emozione in modo semplice
         if rms > 0.05 and bpm > 110:
             emotion = "Energetico"
         elif rms < 0.02 and bpm < 80:
@@ -67,29 +68,23 @@ def apply_glitch_effect(img, seed):
     width, height = img.size
 
     r, g, b = img.split()
-    r = ImageChops.offset(r, random.randint(-5, 5), random.randint(-5, 5))
-    g = ImageChops.offset(g, random.randint(-5, 5), random.randint(-5, 5))
-    b = ImageChops.offset(b, random.randint(-5, 5), random.randint(-5, 5))
+    r = ImageChops.offset(r, random.randint(-10, 10), random.randint(-10, 10))
+    g = ImageChops.offset(g, random.randint(-10, 10), random.randint(-10, 10))
+    b = ImageChops.offset(b, random.randint(-10, 10), random.randint(-10, 10))
     img = Image.merge("RGB", (r, g, b))
 
     draw = ImageDraw.Draw(img)
-
-    for _ in range(5):
-        y = random.randint(0, height - 8)
-        h = random.randint(2, 8)
-        offset = random.randint(-20, 20)
-        band = img.crop((0, y, width, y + h))
-        img.paste(band, (offset, y))
+    for _ in range(100):
+        x = random.randint(0, width)
+        y = random.randint(0, height)
+        color = tuple(random.randint(0, 255) for _ in range(3))
+        draw.point((x, y), fill=color)
 
     for y in range(0, height, 3):
-        line_color = (random.randint(0, 40), random.randint(0, 40), random.randint(0, 40))
-        draw.line([(0, y), (width, y)], fill=line_color)
+        draw.line([(0, y), (width, y)], fill=(random.randint(0, 50), random.randint(0, 50), random.randint(0, 50)))
 
-    for _ in range(int(width * height * 0.002)):
-        x = random.randint(0, width - 1)
-        y = random.randint(0, height - 1)
-        color = (random.randint(150, 255), random.randint(150, 255), random.randint(150, 255))
-        img.putpixel((x, y), color)
+    small = img.resize((width // 10, height // 10), Image.BILINEAR)
+    img = small.resize(img.size, Image.NEAREST)
 
     return img
 
@@ -109,26 +104,27 @@ def generate_glitch_image(features, seed, size=(800, 800)):
     }
     colors = palettes.get(features["emotion"], palettes["Equilibrato"])
 
-    block_size = max(5, int(features["rms"] * 100))
+    block_size = max(5, int(features["rms"] * 300))  # scala amplificata per effetto visibile
     for x in range(0, width, block_size):
         for y in range(0, height, block_size):
-            jitter = random.randint(-30, 30)
-            color = tuple(max(0, min(255, c + jitter)) for c in random.choice(colors))
+            jitter = random.randint(-50, 50)
+            base_color = random.choice(colors)
+            color = tuple(max(0, min(255, c + jitter)) for c in base_color)
             draw.rectangle([x, y, x + block_size, y + block_size], fill=color)
 
-    line_count = int(features["dynamic_range"] // 1000) + 3
+    # linee glitch diagonali casuali
+    line_count = int(features["dynamic_range"] // 1000) + 5
     for _ in range(line_count):
-        start_x = random.randint(0, width)
-        start_y = 0 if random.random() < 0.5 else height
-        end_x = random.randint(0, width)
-        end_y = height if start_y == 0 else 0
-        draw.line((start_x, start_y, end_x, end_y), fill=random.choice(colors), width=2)
+        start = (random.randint(0, width), random.randint(0, height))
+        end = (random.randint(0, width), random.randint(0, height))
+        draw.line([start, end], fill=random.choice(colors), width=random.randint(1, 4))
 
-    circle_count = int(features["bpm"] // 10)
+    # cerchi glitch sparsi
+    circle_count = int(features["bpm"] // 10) + 10
     for _ in range(circle_count):
         cx = random.randint(0, width)
         cy = random.randint(0, height)
-        r = int(features["rms"] * 100) + random.randint(5, 20)
+        r = int(features["rms"] * 200) + random.randint(10, 30)
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=random.choice(colors), width=2)
 
     img = apply_glitch_effect(img, seed)
