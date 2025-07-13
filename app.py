@@ -77,6 +77,7 @@ def analyze_audio_librosa(file):
 
         dynamic_range = abs(spectral_bandwidth - spectral_centroid)
 
+        # Aggiungi più variabilità all'hash
         feature_string = f"{bpm:.2f}_{rms:.4f}_{spectral_centroid:.0f}_{len(audio_bytes)}"
         hash_obj = hashlib.sha256((feature_string + str(audio_bytes[:1000])).encode()).hexdigest()
         hash_int = int(hash_obj[:8], 16)
@@ -120,185 +121,316 @@ def analyze_audio_librosa(file):
         st.error(f"Errore nell'analisi audio con Librosa: {str(e)}")
         return None
 
-def create_advanced_noise_pattern(size, features, seed):
+def create_random_base_image(size, features, seed):
+    """Crea un'immagine base più varia e interessante"""
     random.seed(seed)
     np.random.seed(seed % 2147483647)
     width, height = size
-    pattern = np.zeros((height, width, 3), dtype=np.uint8)
-    mfcc_features = features['mfcc_features'][:8]
-
-    for i, mfcc_val in enumerate(mfcc_features):
-        mfcc_val = max(-10, min(10, mfcc_val))
-        intensity = max(10, min(100, int(abs(mfcc_val) * 50) + 10))
-        frequency = max(1, int(features['spectral_centroid'] / 1000) + i + 1)
-
-        for y in range(0, height, 2):
-            for x in range(0, width, 2):
-                wave_val = np.sin(x * frequency / 100.0 + y * intensity / 200.0 + mfcc_val)
-                color_intensity = int((wave_val + 1) * 127)
-                color_intensity = max(0, min(255, color_intensity))
-
-                if i % 3 == 0:
-                    pattern[y, x, 0] = min(255, pattern[y, x, 0] + color_intensity)
-                elif i % 3 == 1:
-                    pattern[y, x, 1] = min(255, pattern[y, x, 1] + color_intensity)
-                else:
-                    pattern[y, x, 2] = min(255, pattern[y, x, 2] + color_intensity)
-
-    return Image.fromarray(pattern, 'RGB')
-
-def create_frequency_visualization(features, size, seed):
-    random.seed(seed)
-    width, height = size
-
+    
+    # Palette colori più audaci basata sull'emozione
     emotion_palettes = {
-        "Aggressive": [(255, 0, 0), (255, 69, 0), (220, 20, 60)],
-        "Energetico": [(255, 140, 0), (255, 215, 0), (255, 69, 0)],
-        "Ambient": [(0, 191, 255), (70, 130, 180), (100, 149, 237)],
-        "Calmo": [(30, 144, 255), (135, 206, 235), (70, 130, 180)],
-        "Melodico": [(148, 0, 211), (75, 0, 130), (238, 130, 238)],
-        "Ritmico": [(255, 0, 255), (0, 255, 255), (255, 255, 0)],
-        "Dinamico": [(255, 20, 147), (255, 105, 180), (255, 192, 203)],
-        "Equilibrato": [(0, 255, 0), (0, 255, 255), (255, 255, 0)]
+        "Aggressive": [(255, 0, 0), (255, 100, 0), (200, 0, 100), (255, 255, 0), (255, 0, 255)],
+        "Energetico": [(255, 140, 0), (255, 0, 255), (0, 255, 255), (255, 255, 0), (255, 100, 100)],
+        "Ambient": [(0, 100, 255), (100, 0, 255), (0, 255, 200), (100, 255, 100), (200, 100, 255)],
+        "Calmo": [(0, 150, 255), (100, 200, 255), (0, 255, 150), (150, 255, 200), (200, 150, 255)],
+        "Melodico": [(200, 0, 255), (255, 0, 200), (100, 100, 255), (255, 100, 200), (200, 100, 255)],
+        "Ritmico": [(255, 0, 255), (0, 255, 255), (255, 255, 0), (255, 100, 0), (100, 255, 100)],
+        "Dinamico": [(255, 50, 150), (150, 255, 50), (50, 150, 255), (255, 150, 50), (150, 50, 255)],
+        "Equilibrato": [(100, 255, 100), (255, 100, 100), (100, 100, 255), (255, 255, 100), (255, 100, 255)]
     }
-
+    
     colors = emotion_palettes.get(features["emotion"], emotion_palettes["Equilibrato"])
-    modified_colors = []
-    for color in colors:
-        r, g, b = color
-        r = max(0, min(255, int(r * (1 + features['harmonic_energy'] * 2))))
-        g = max(0, min(255, int(g * (1 + features['percussive_energy'] * 3))))
-        b = max(0, min(255, int(b * (1 + features['rms'] * 5))))
-        modified_colors.append((r, g, b))
-
-    img = Image.new('RGB', size, (10, 10, 25))
+    
+    # Crea background con gradiente o pattern
+    img = Image.new('RGB', size, (0, 0, 0))
     draw = ImageDraw.Draw(img)
+    
+    # Tipo di background basato su seed
+    bg_type = seed % 4
+    
+    if bg_type == 0:
+        # Gradiente diagonale
+        for x in range(width):
+            for y in range(height):
+                color_idx = int((x + y) / (width + height) * len(colors))
+                color = colors[color_idx % len(colors)]
+                draw.point((x, y), fill=color)
+    elif bg_type == 1:
+        # Pattern a bande
+        band_width = max(10, int(features['spectral_bandwidth'] / 100))
+        for i in range(0, width, band_width):
+            color = colors[i // band_width % len(colors)]
+            draw.rectangle([i, 0, i + band_width, height], fill=color)
+    elif bg_type == 2:
+        # Pattern radiale
+        center_x, center_y = width // 2, height // 2
+        max_radius = max(width, height) // 2
+        for radius in range(0, max_radius, 20):
+            color = colors[radius // 20 % len(colors)]
+            draw.ellipse([center_x - radius, center_y - radius, 
+                         center_x + radius, center_y + radius], outline=color, width=10)
+    else:
+        # Pattern a rumore
+        noise_array = np.random.randint(0, len(colors), (height, width))
+        for y in range(height):
+            for x in range(width):
+                color = colors[noise_array[y, x]]
+                draw.point((x, y), fill=color)
+    
+    return img
 
-    num_bands = max(3, min(int(features['spectral_rolloff'] / 1000), 12))
-    band_height = height // (num_bands + 1)
+def apply_pixel_sorting(img, features, seed):
+    """Applica pixel sorting per effetti glitch più intensi"""
+    random.seed(seed)
+    width, height = img.size
+    pixels = np.array(img)
+    
+    # Intensità basata sulle caratteristiche audio
+    sort_intensity = max(0.1, min(0.9, features['onset_strength'] / 10 + features['percussive_energy'] * 5))
+    
+    # Sorting orizzontale
+    if random.random() < 0.5:
+        for y in range(0, height, random.randint(2, 8)):
+            if random.random() < sort_intensity:
+                row = pixels[y].copy()
+                # Ordina per luminosità o per colore
+                if random.random() < 0.5:
+                    brightness = np.mean(row, axis=1)
+                    sort_indices = np.argsort(brightness)
+                else:
+                    sort_indices = np.argsort(row[:, random.randint(0, 2)])
+                pixels[y] = row[sort_indices]
+    
+    # Sorting verticale
+    else:
+        for x in range(0, width, random.randint(2, 8)):
+            if random.random() < sort_intensity:
+                col = pixels[:, x].copy()
+                if random.random() < 0.5:
+                    brightness = np.mean(col, axis=1)
+                    sort_indices = np.argsort(brightness)
+                else:
+                    sort_indices = np.argsort(col[:, random.randint(0, 2)])
+                pixels[:, x] = col[sort_indices]
+    
+    return Image.fromarray(pixels)
 
-    for band in range(num_bands):
-        y_start = band * band_height
-        y_end = min(height, (band + 1) * band_height)
-        mfcc_idx = band % len(features['mfcc_features'])
-        intensity = features['mfcc_features'][mfcc_idx]
-        intensity = max(-10, min(10, intensity))
-        wave_amplitude = max(10, min(100, int(abs(intensity) * 50) + 20))
-        color = modified_colors[band % len(modified_colors)]
-
-        points = []
-        for x in range(0, width, 4):
-            try:
-                bpm_val = float(features.get('bpm', 120))
-                wave1 = np.sin(x * bpm_val / 1000.0 + band * np.pi / 4)
-                wave2 = np.cos(x * features['onset_strength'] / 100.0 + intensity)
-                combined_wave = (wave1 + wave2 * 0.5) * wave_amplitude
-                y = int(y_start + band_height // 2 + combined_wave)
-                y = max(y_start, min(y_end - 1, y))
-                points.append((x, y))
-            except:
-                continue
-
-        if len(points) > 1:
-            for i in range(len(points) - 1):
-                draw.line([points[i], points[i + 1]], fill=color, width=max(1, random.randint(2, 4)))
-
-    num_elements = max(3, min(int(features['onset_strength'] * 2) + 3, 15))
-    for _ in range(num_elements):
-        try:
-            x = random.randint(0, width - 1)
+def apply_digital_corruption(img, features, seed):
+    """Applica corruzioni digitali più aggressive"""
+    random.seed(seed)
+    width, height = img.size
+    pixels = np.array(img)
+    
+    corruption_intensity = max(0.1, min(0.8, features['zero_crossing_rate'] * 5 + features['rms'] * 3))
+    
+    # Corruzioni random
+    num_corruptions = int(corruption_intensity * 50)
+    
+    for _ in range(num_corruptions):
+        corruption_type = random.randint(0, 4)
+        
+        if corruption_type == 0:
+            # Blocchi corrotti
+            x = random.randint(0, width - 50)
+            y = random.randint(0, height - 50)
+            block_w = random.randint(10, 100)
+            block_h = random.randint(10, 100)
+            
+            # Inverti colori del blocco
+            pixels[y:y+block_h, x:x+block_w] = 255 - pixels[y:y+block_h, x:x+block_w]
+            
+        elif corruption_type == 1:
+            # Linee di interferenza
             y = random.randint(0, height - 1)
-            size_elem = max(10, min(80, int(features['rms'] * 200) + random.randint(10, 50)))
-            color = random.choice(modified_colors)
-
-            x1 = max(0, x - size_elem // 2)
-            y1 = max(0, y - size_elem // 2)
-            x2 = min(width, x + size_elem // 2)
-            y2 = min(height, y + size_elem // 2)
-
-            if features['percussive_energy'] > 0.02:
-                draw.rectangle([x1, y1, x2, y2], outline=color, width=random.randint(2, 4))
+            line_height = random.randint(1, 5)
+            # Shift della linea
+            shift = random.randint(-50, 50)
+            if shift > 0:
+                pixels[y:y+line_height, shift:] = pixels[y:y+line_height, :-shift]
             else:
-                draw.ellipse([x1, y1, x2, y2], outline=color, width=random.randint(2, 4))
-        except:
-            continue
+                pixels[y:y+line_height, :shift] = pixels[y:y+line_height, -shift:]
+                
+        elif corruption_type == 2:
+            # Rumore a blocchi
+            x = random.randint(0, width - 20)
+            y = random.randint(0, height - 20)
+            block_w = random.randint(5, 30)
+            block_h = random.randint(5, 30)
+            
+            noise = np.random.randint(0, 255, (block_h, block_w, 3))
+            pixels[y:y+block_h, x:x+block_w] = noise
+            
+        elif corruption_type == 3:
+            # Duplicazione di strisce
+            if random.random() < 0.5:
+                # Orizzontale
+                y = random.randint(0, height - 10)
+                stripe_h = random.randint(1, 8)
+                target_y = random.randint(0, height - stripe_h)
+                pixels[target_y:target_y+stripe_h] = pixels[y:y+stripe_h]
+            else:
+                # Verticale
+                x = random.randint(0, width - 10)
+                stripe_w = random.randint(1, 8)
+                target_x = random.randint(0, width - stripe_w)
+                pixels[:, target_x:target_x+stripe_w] = pixels[:, x:x+stripe_w]
+                
+        elif corruption_type == 4:
+            # Aberrazione cromatica estrema
+            offset = random.randint(5, 30)
+            channel = random.randint(0, 2)
+            direction = random.choice([(offset, 0), (-offset, 0), (0, offset), (0, -offset)])
+            
+            if direction[0] > 0:
+                pixels[:, offset:, channel] = pixels[:, :-offset, channel]
+            elif direction[0] < 0:
+                pixels[:, :offset, channel] = pixels[:, -offset:, channel]
+            elif direction[1] > 0:
+                pixels[offset:, :, channel] = pixels[:-offset, :, channel]
+            elif direction[1] < 0:
+                pixels[:offset, :, channel] = pixels[-offset:, :, channel]
+    
+    return Image.fromarray(pixels)
 
+def apply_recursive_glitch(img, features, seed, iterations=3):
+    """Applica più livelli di glitch ricorsivamente"""
+    random.seed(seed)
+    current_img = img.copy()
+    
+    for i in range(iterations):
+        iteration_seed = seed + i * 1000
+        
+        # Scegli effetto basato sulle caratteristiche
+        if features['percussive_energy'] > 0.03:
+            current_img = apply_pixel_sorting(current_img, features, iteration_seed)
+        
+        if features['onset_strength'] > 2:
+            current_img = apply_digital_corruption(current_img, features, iteration_seed + 100)
+        
+        # Aberrazione cromatica più intensa
+        if features['spectral_bandwidth'] > 1500:
+            current_img = apply_advanced_chromatic_aberration(current_img, features, iteration_seed + 200)
+        
+        # Distorsione casuale
+        if random.random() < 0.7:
+            current_img = apply_random_distortion(current_img, features, iteration_seed + 300)
+    
+    return current_img
+
+def apply_random_distortion(img, features, seed):
+    """Applica distorsioni casuali"""
+    random.seed(seed)
+    width, height = img.size
+    pixels = np.array(img)
+    
+    distortion_type = random.randint(0, 3)
+    
+    if distortion_type == 0:
+        # Compressione JPEG simulata
+        quality = random.randint(10, 50)
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=quality)
+        buffer.seek(0)
+        return Image.open(buffer)
+        
+    elif distortion_type == 1:
+        # Riduzione colori
+        colors = random.randint(8, 64)
+        return img.quantize(colors=colors).convert('RGB')
+        
+    elif distortion_type == 2:
+        # Scaling e resize con artefatti
+        scale = random.uniform(0.3, 0.8)
+        small_img = img.resize((int(width * scale), int(height * scale)), Image.NEAREST)
+        return small_img.resize((width, height), Image.NEAREST)
+        
+    elif distortion_type == 3:
+        # Interferenza a onde
+        for y in range(height):
+            wave_offset = int(np.sin(y * 0.1 + seed) * 20)
+            if wave_offset > 0:
+                pixels[y, wave_offset:] = pixels[y, :-wave_offset]
+            elif wave_offset < 0:
+                pixels[y, :wave_offset] = pixels[y, -wave_offset:]
+        return Image.fromarray(pixels)
+    
     return img
 
 def apply_advanced_chromatic_aberration(img, features, seed):
+    """Aberrazione cromatica migliorata"""
     random.seed(seed)
-    base_offset = max(1, min(20, int(features['spectral_bandwidth'] / 200)))
-    rms_multiplier = max(1, min(10, int(features['rms'] * 100)))
-    offset_r = base_offset + random.randint(-rms_multiplier, rms_multiplier)
-    offset_g = random.randint(-base_offset//2, base_offset//2)
-    offset_b = -base_offset + random.randint(-rms_multiplier//2, rms_multiplier//2)
-
-    if features['percussive_energy'] > features['harmonic_energy']:
-        offset_r_y = random.randint(-3, 3)
-        offset_b_y = random.randint(-3, 3)
-    else:
-        offset_r_y = 0
-        offset_b_y = 0
+    base_offset = max(3, min(30, int(features['spectral_bandwidth'] / 100)))
+    rms_multiplier = max(2, min(15, int(features['rms'] * 150)))
+    
+    # Offsets più variabili
+    offset_r_x = base_offset + random.randint(-rms_multiplier, rms_multiplier)
+    offset_r_y = random.randint(-5, 5)
+    offset_g_x = random.randint(-base_offset//2, base_offset//2)
+    offset_g_y = random.randint(-3, 3)
+    offset_b_x = -base_offset + random.randint(-rms_multiplier//2, rms_multiplier//2)
+    offset_b_y = random.randint(-5, 5)
 
     r, g, b = img.split()
-    r = ImageChops.offset(r, offset_r, offset_r_y)
-    g = ImageChops.offset(g, offset_g, 0)
-    b = ImageChops.offset(b, offset_b, offset_b_y)
+    r = ImageChops.offset(r, offset_r_x, offset_r_y)
+    g = ImageChops.offset(g, offset_g_x, offset_g_y)
+    b = ImageChops.offset(b, offset_b_x, offset_b_y)
+    
     return Image.merge('RGB', (r, g, b))
 
-def apply_audio_driven_datamoshing(img, features, seed):
-    random.seed(seed)
-    width, height = img.size
-    glitch_intensity = max(3, min(20, int(features['onset_strength'] * 15) + int(features['percussive_energy'] * 70)))
-
-    if features['percussive_energy'] > 0.02:
-        for _ in range(random.randint(2, glitch_intensity)):
-            x_pos = random.randint(0, width - 10)
-            strip_width = random.randint(1, 8)
-            if x_pos + strip_width < width:
-                strip = img.crop((x_pos, 0, x_pos + strip_width, height))
-                new_x = max(0, min(width - strip_width, x_pos + random.randint(-30, 30)))
-                img.paste(strip, (new_x, 0))
-    else:
-        for _ in range(random.randint(2, glitch_intensity)):
-            y_pos = random.randint(0, height - 10)
-            strip_height = random.randint(1, 6)
-            if y_pos + strip_height < height:
-                strip = img.crop((0, y_pos, width, y_pos + strip_height))
-                new_y = max(0, min(height - strip_height, y_pos + random.randint(-20, 20)))
-                img.paste(strip, (0, new_y))
-    return img
-
 def generate_advanced_glitch_image(features, seed, size=(800, 800)):
+    """Genera immagine glitch con maggiore varietà"""
     random.seed(seed)
     np.random.seed(seed % 2147483647)
-    img = create_frequency_visualization(features, size, seed)
+    
+    # Crea immagine base più varia
+    img = create_random_base_image(size, features, seed)
+    
+    # Applica effetti glitch ricorsivamente
+    img = apply_recursive_glitch(img, features, seed)
+    
+    # Effetti finali basati sull'emozione
+    if features['emotion'] == 'Aggressive':
+        img = apply_digital_corruption(img, features, seed + 5000)
+        img = apply_pixel_sorting(img, features, seed + 6000)
+    elif features['emotion'] == 'Energetico':
+        img = apply_advanced_chromatic_aberration(img, features, seed + 7000)
+        img = apply_random_distortion(img, features, seed + 8000)
+    elif features['emotion'] == 'Ambient':
+        img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
+        img = apply_advanced_chromatic_aberration(img, features, seed + 9000)
+    elif features['emotion'] == 'Ritmico':
+        img = apply_pixel_sorting(img, features, seed + 10000)
+        img = apply_digital_corruption(img, features, seed + 11000)
+    else:
+        # Mix di effetti casuali
+        effects = [
+            lambda: apply_pixel_sorting(img, features, seed + 12000),
+            lambda: apply_digital_corruption(img, features, seed + 13000),
+            lambda: apply_random_distortion(img, features, seed + 14000)
+        ]
+        for effect in random.sample(effects, random.randint(1, 3)):
+            img = effect()
 
+    # Miglioramento finale
     if features['harmonic_energy'] > 0.03:
         enhancer = ImageEnhance.Contrast(img)
-        img = enhancer.enhance(1.2)
+        img = enhancer.enhance(random.uniform(1.1, 1.5))
+    
     if features['rms'] > 0.05:
         enhancer = ImageEnhance.Color(img)
-        img = enhancer.enhance(1.1)
-
-    img = apply_advanced_chromatic_aberration(img, features, seed + 1000)
-    img = apply_audio_driven_datamoshing(img, features, seed + 2000)
-
-    if features['emotion'] == 'Aggressive':
-        img = apply_advanced_chromatic_aberration(img, features, seed + 3000)
-    elif features['emotion'] == 'Ambient':
-        img = img.filter(ImageFilter.GaussianBlur(radius=0.8))
-    elif features['emotion'] == 'Ritmico':
-        img = img.quantize(colors=32).convert('RGB')
+        img = enhancer.enhance(random.uniform(1.1, 1.8))
 
     descrizione = [
-        f"🎵 BPM: {features['bpm']:.1f} → Velocità effetti",
-        f"🔊 RMS: {features['rms']:.3f} → Intensità colori",
-        f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz → Pattern",
-        f"⚡ Energia percussiva: {features['percussive_energy']:.3f} → Tipo glitch",
-        f"🎼 Energia armonica: {features['harmonic_energy']:.3f} → Contrasto",
-        f"🎭 Emozione: {features['emotion']} → Stile generale"
+        f"🎵 BPM: {features['bpm']:.1f} → Velocità pattern e corruzioni",
+        f"🔊 RMS: {features['rms']:.3f} → Intensità effetti glitch",
+        f"📡 Centro spettrale: {features['spectral_centroid']:.0f} Hz → Tipo di distorsione",
+        f"⚡ Energia percussiva: {features['percussive_energy']:.3f} → Pixel sorting",
+        f"🎼 Energia armonica: {features['harmonic_energy']:.3f} → Aberrazione cromatica",
+        f"🔄 Zero crossing: {features['zero_crossing_rate']:.3f} → Corruzioni digitali",
+        f"🎭 Emozione: {features['emotion']} → Stile glitch generale",
+        f"🌊 Onset strength: {features['onset_strength']:.1f} → Ricorsività effetti"
     ]
+    
     return img, descrizione
 
 # --- UI ---
@@ -315,10 +447,23 @@ with col2:
 with col3:
     show_analysis = st.checkbox("Mostra analisi avanzata", value=True)
 
+# Controlli aggiuntivi per personalizzazione
+st.sidebar.markdown("### 🎨 Controlli Glitch")
+glitch_intensity = st.sidebar.slider("Intensità Glitch", 0.1, 2.0, 1.0, 0.1)
+use_pixel_sorting = st.sidebar.checkbox("Pixel Sorting", value=True)
+use_digital_corruption = st.sidebar.checkbox("Corruzioni Digitali", value=True)
+use_chromatic_aberration = st.sidebar.checkbox("Aberrazione Cromatica", value=True)
+
 if audio_file:
     with st.spinner("🎵 Analizzando caratteristiche audio..."):
         features = analyze_audio_librosa(audio_file)
+    
     if features:
+        # Modifica l'intensità degli effetti
+        features['rms'] *= glitch_intensity
+        features['onset_strength'] *= glitch_intensity
+        features['percussive_energy'] *= glitch_intensity
+        
         if show_analysis:
             st.markdown("### 🎨 Analisi Audio")
             col_a, col_b, col_c = st.columns(3)
@@ -337,27 +482,29 @@ if audio_file:
 
         dimensions = get_dimensions(aspect_ratio)
 
+        # Seed più variabile che incorpora timestamp e parametri UI
         base_seed = features['file_hash']
+        ui_seed = hash(f"{glitch_intensity}_{use_pixel_sorting}_{use_digital_corruption}_{use_chromatic_aberration}") % 1000000
+        
         if st.button("🔄 Rigenera Copertina Glitch"):
             st.session_state.regen_count += 1
             st.rerun()
 
-        if st.session_state.regen_count == 0:
-            seed = base_seed
-        else:
-            timestamp_seed = int(time.time() * 1000000) % 1000000
-            seed = (base_seed + timestamp_seed + st.session_state.regen_count * 12345) % 2147483647
+        # Calcola seed finale con più variabilità
+        timestamp_seed = int(time.time() * 1000000) % 1000000
+        final_seed = (base_seed + ui_seed + timestamp_seed + st.session_state.regen_count * 54321) % 2147483647
 
-        with st.spinner("🎨 Generando glitch cover..."):
-            img, descrizione = generate_advanced_glitch_image(features, seed, size=dimensions)
+        with st.spinner("🎨 Generando glitch cover avanzata..."):
+            img, descrizione = generate_advanced_glitch_image(features, final_seed, size=dimensions)
 
-        st.image(img, caption=f"Glitch Cover - {features['emotion']} Style - {aspect_ratio} (Gen #{st.session_state.regen_count + 1})", use_container_width=True)
+        st.image(img, caption=f"Advanced Glitch Cover - {features['emotion']} Style - {aspect_ratio} (Gen #{st.session_state.regen_count + 1})", use_container_width=True)
 
         if show_analysis:
             with st.expander("🔧 Dettagli Tecnici"):
-                st.write(f"**Seed utilizzato:** {seed}")
+                st.write(f"**Seed utilizzato:** {final_seed}")
                 st.write(f"**Firma audio:** {features['audio_signature']}")
                 st.write(f"**Rigenerazioni:** {st.session_state.regen_count + 1}")
+                st.write(f"**Intensità glitch:** {glitch_intensity}")
                 st.write("**Mappatura audio → effetti visivi:**")
                 for d in descrizione:
                     st.markdown(f"- {d}")
@@ -365,20 +512,23 @@ if audio_file:
         buf = io.BytesIO()
         img.save(buf, format=img_format)
         byte_im = buf.getvalue()
-        filename = f"glitch_cover_{features['emotion'].lower()}_{features['audio_signature'][:8]}_{int(time.time())}.{img_format.lower()}"
+        filename = f"advanced_glitch_cover_{features['emotion'].lower()}_{features['audio_signature'][:8]}_{int(time.time())}.{img_format.lower()}"
         st.download_button(
-            label=f"⬇️ Scarica Glitch Cover {img_format} ({dimensions[0]}x{dimensions[1]})",
+            label=f"⬇️ Scarica Advanced Glitch Cover {img_format} ({dimensions[0]}x{dimensions[1]})",
             data=byte_im,
             file_name=filename,
             mime=f"image/{img_format.lower()}"
         )
 
-        st.success("✅ Effetti Glitch Applicati:")
-        st.write("• Visualizzazione frequenze basata su analisi audio")
-        st.write("• Aberrazione cromatica adattiva")
-        st.write("• Datamoshing responsive al contenuto")
-        st.write("• Palette colori emotiva")
-        st.write("• Effetti personalizzati per genere musicale")
+        st.success("✅ Effetti Glitch Avanzati Applicati:")
+        st.write("• Pixel sorting adattivo basato su energia percussiva")
+        st.write("• Corruzioni digitali multiple (blocchi, rumore, interferenze)")
+        st.write("• Aberrazione cromatica multi-direzionale")
+        st.write("• Distorsioni casuali (compressione, scaling, onde)")
+        st.write("• Effetti ricorsivi per maggiore complessità")
+        st.write("• Background variabili (gradienti, pattern, rumore)")
+        st.write("• Palette colori estese per ogni emozione")
+        st.write("• Seed altamente variabile per unicità garantita")
 else:
     st.session_state.regen_count = 0
     st.info("👆 Carica un file audio per iniziare!")
