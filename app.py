@@ -7,142 +7,116 @@ import hashlib
 import time
 import math
 
+# Impostazioni pagina
 st.set_page_config(page_title="GlitchCover Studio by Loop507", layout="centered")
 
-st.title("🎨 GlitchCover Studio by Loop507")
-st.markdown("""
-Carica un brano audio per generare una copertina glitch basata sulle sue caratteristiche sonore.
+st.title("GlitchCover Studio by Loop507 🎨🎵")
+st.write("Carica un brano audio per generare una copertina artistica unica basata sulle sue caratteristiche sonore.")
+st.write("Formato supportato: MP3, WAV, OGG. Dimensione massima: 200MB")
 
-**Limit**: 200MB • Formati supportati: MP3, WAV, OGG
-""")
-
-# Analisi Audio
-
+# Analisi simulata dei dati audio da bytes (no librerie audio)
 def analyze_audio(file):
-    try:
-        file.seek(0)
-        audio_bytes = file.read()
-        if len(audio_bytes) < 10000:
-            st.warning("⚠️ File troppo breve. Usa un brano più lungo.")
-            return None
+    file.seek(0)
+    audio_bytes = file.read()
+    hash_obj = hashlib.sha256(audio_bytes[:10000]).hexdigest()
+    seed = int(hash_obj[:8], 16)
+    np.random.seed(seed % (2**32 - 1))
+    
+    frequencies = np.random.uniform(60, 12000, 20)
+    bpm = np.random.uniform(60, 180)
+    rms = np.random.uniform(0.01, 0.09)
+    dominant_freq = np.median(frequencies)
+    spectral_centroid = np.mean(frequencies)
+    dynamic_range = np.max(frequencies) - np.min(frequencies)
 
-        hash_val = int(hashlib.sha256(audio_bytes[:10000]).hexdigest()[:8], 16)
-        np.random.seed(hash_val % (2**31))
-        random.seed(hash_val)
+    if bpm > 130:
+        emotion = "Energetico"
+        color_palette = [(255, 80, 0), (255, 200, 0)]
+    elif bpm < 80:
+        emotion = "Intimo"
+        color_palette = [(50, 100, 180), (0, 180, 120)]
+    else:
+        emotion = "Equilibrato"
+        color_palette = [(200, 100, 255), (100, 255, 200)]
 
-        chunks = [audio_bytes[i:i+1000] for i in range(0, min(len(audio_bytes), 50000), 1000)]
-        freqs = [50 + (sum(chunk)/max(len(chunk),1)/255)*8000 for chunk in chunks if chunk]
-
-        variance = np.var([b for b in audio_bytes[::1000][:100]])
-        bpm = 60 + (variance / 255) * 120
-        rms = np.mean([b for b in audio_bytes[::5000][:100]]) / 255 * 0.08
-        dominant = max(freqs) if freqs else 1000
-        centroid = np.mean(freqs) if freqs else 2000
-        harmonics = [dominant * i for i in [1,1.5,2] if dominant * i < 8000]
-        bass = min(freqs) if freqs else 100
-        treble = max(freqs) if freqs else 5000
-        dynamic = max(freqs) - min(freqs) if freqs else 1000
-
-        if bpm > 120 and rms > 0.04:
-            mood, color = "Energetico", "rosso-arancio"
-        elif bpm < 80 and rms < 0.03:
-            mood, color = "Calmo", "blu-verde"
-        elif dynamic > 2000:
-            mood, color = "Dinamico", "multicolore"
-        else:
-            mood, color = "Equilibrato", "viola-cyan"
-
-        if bpm > 120 and dynamic > 1500:
-            genre = "Elettronica/Dance"
-        elif bpm < 80 and bass < 200:
-            genre = "Acustica/Classica"
-        elif dynamic > 2500:
-            genre = "Rock/Metal"
-        else:
-            genre = "Pop/Indie"
-
-        return {
-            "bpm": bpm,
-            "rms": rms,
-            "dominant_freq": dominant,
-            "spectral_centroid": centroid,
-            "frequencies": freqs,
-            "harmonics": harmonics,
-            "bass_freq": bass,
-            "treble_freq": treble,
-            "dynamic_range": dynamic,
-            "emotion": mood,
-            "emotion_color": color,
-            "genre_style": genre,
-            "file_hash": hash_val
-        }
-    except Exception as e:
-        st.error(f"Errore: {e}")
-        return None
-
-# Formato
-
-def get_size(ratio):
     return {
-        "Quadrato (1:1)": (800, 800),
-        "Verticale (9:16)": (720, 1280),
-        "Orizzontale (16:9)": (1280, 720)
-    }.get(ratio, (800, 800))
+        "frequencies": frequencies,
+        "bpm": bpm,
+        "rms": rms,
+        "dominant_freq": dominant_freq,
+        "spectral_centroid": spectral_centroid,
+        "dynamic_range": dynamic_range,
+        "emotion": emotion,
+        "color_palette": color_palette,
+        "hash": seed
+    }
 
-# Copertina
+# Genera immagine artistica
 
-def generate_cover(fx, seed=0, size=(800,800)):
-    width, height = size
-    base_colors = {
-        "Energetico": [(255,100,0)],
-        "Calmo": [(0,150,200)],
-        "Dinamico": [(255,0,100),(0,255,100),(100,100,255)],
-        "Equilibrato": [(150,0,200)]
-    }.get(fx['emotion'], [(100,100,100)])
-
-    random.seed(fx['file_hash'] + seed)
-    img = Image.new("RGB", size, "black")
+def generate_art_cover(data, size=(800, 800), variation=0):
+    random.seed(data['hash'] + variation)
+    np.random.seed((data['hash'] + variation) % (2**32 - 1))
+    img = Image.new("RGB", size, color="black")
     draw = ImageDraw.Draw(img)
 
-    for x in range(0, width, 6):
-        for y in range(0, height, 6):
-            color = random.choice(base_colors)
-            intensity = int(fx['dominant_freq'] / 8000 * 100) + random.randint(-10,10)
-            pixel = tuple(min(255, int(c * intensity / 100)) for c in color)
-            draw.rectangle([x, y, x+6, y+6], fill=pixel)
+    # Fondo glitchato a bande
+    for y in range(0, size[1], 10):
+        color = random.choice(data['color_palette'])
+        glitch_intensity = int(data['dominant_freq'] / 12000 * 255)
+        mod_color = tuple(min(255, int(c + random.uniform(-30, 30))) for c in color)
+        draw.rectangle([0, y, size[0], y + 5], fill=mod_color)
+
+    # Onde curve
+    for f in data['frequencies'][:6]:
+        amp = int(f / 1500)
+        step = int(800 / 40)
+        for x in range(0, size[0], step):
+            y = int(size[1]/2 + amp * math.sin(f * x * 0.0001))
+            radius = int(data['rms'] * 400 + 2)
+            color = random.choice(data['color_palette'])
+            draw.ellipse([x-radius, y-radius, x+radius, y+radius], fill=color)
+
+    # Particelle dinamiche
+    for _ in range(int(data['bpm'])):
+        x = random.randint(0, size[0])
+        y = random.randint(0, size[1])
+        color = random.choice(data['color_palette'])
+        r = random.randint(1, 3)
+        draw.ellipse([x-r, y-r, x+r, y+r], fill=color)
+
+    # Cerchi concentrici armonici
+    center = (size[0]//2, size[1]//2)
+    for i in range(3):
+        r = int((data['spectral_centroid']/12000) * size[0]//2) + i*10
+        color = data['color_palette'][i % len(data['color_palette'])]
+        draw.ellipse([center[0]-r, center[1]-r, center[0]+r, center[1]+r], outline=color, width=2)
 
     return img
 
-# UI
-uploaded = st.file_uploader("🎵 Carica brano", type=["mp3","wav","ogg"])
-
-col1, col2 = st.columns(2)
-format_opt = col1.selectbox("Formato immagine", ["Quadrato (1:1)","Orizzontale (16:9)","Verticale (9:16)"])
-img_fmt = col2.selectbox("Formato file", ["PNG","JPEG"])
-
-if 'seed' not in st.session_state:
-    st.session_state.seed = random.randint(0, 999999)
+# Interfaccia
+uploaded = st.file_uploader("Carica brano audio", type=["mp3", "wav", "ogg"])
 
 if uploaded:
-    fx = analyze_audio(uploaded)
-    if fx:
-        st.subheader("🎧 Analisi Audio")
-        st.metric("BPM", f"{fx['bpm']:.1f}")
-        st.metric("Energia RMS", f"{fx['rms']:.3f}")
-        st.metric("Dominante", f"{fx['dominant_freq']:.0f} Hz")
-        st.metric("Emozione", fx['emotion'])
-        st.info(f"🎼 Genere stimato: {fx['genre_style']}")
+    data = analyze_audio(uploaded)
+    variation = st.slider("Variazione artistica", 0, 20, 0)
+    quality = st.selectbox("Formato immagine", ["Standard (800x800)", "Alta (1200x1200)"])
+    size = (800, 800) if "Standard" in quality else (1200, 1200)
 
-        st.image(generate_cover(fx, st.session_state.seed, get_size(format_opt)), caption="Copertina generata")
+    with st.spinner("Generazione in corso..."):
+        image = generate_art_cover(data, size=size, variation=variation)
 
-        if st.button("🔁 Rigenera immagine"):
-            st.session_state.seed = random.randint(0, 999999)
-            st.experimental_rerun()
+    st.image(image, caption=f"Copertina generata - Emozione: {data['emotion']} - BPM: {data['bpm']:.1f}")
 
-        # Download
-        buf = io.BytesIO()
-        image = generate_cover(fx, st.session_state.seed, get_size(format_opt))
-        image.save(buf, format=img_fmt)
-        st.download_button("⬇️ Scarica Copertina", buf.getvalue(), file_name=f"cover_{int(time.time())}.{img_fmt.lower()}", mime=f"image/{img_fmt.lower()}")
+    st.markdown("---")
+    st.subheader("🎧 Descrizione Artistica della Copertina")
+    st.markdown(f"- L'immagine è influenzata dalla **frequenza dominante** di circa **{data['dominant_freq']:.0f} Hz**.")
+    st.markdown(f"- Il **battito per minuto (BPM)** di **{data['bpm']:.1f}** ha determinato la quantità e il movimento delle particelle.")
+    st.markdown(f"- Le curve glitch sono mappate sulle **frequenze medie** tra **{int(np.min(data['frequencies']))} Hz** e **{int(np.max(data['frequencies']))} Hz**.")
+    st.markdown(f"- L'**emozione prevalente** è: **{data['emotion']}**, rappresentata dai colori selezionati.")
+
+    # Download
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    st.download_button("⬇️ Scarica Copertina", buffer.getvalue(), file_name="glitch_cover.png", mime="image/png")
 else:
-    st.info("👆 Carica un brano per iniziare!")
+    st.info("Carica un file audio per iniziare la creazione della tua copertina glitch personalizzata.")
