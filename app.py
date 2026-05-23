@@ -680,8 +680,12 @@ glitch_controls = {'pixel_sorting':use_ps,'digital_corruption':use_dc,
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎬 Impostazioni Video")
 fps_choice  = st.sidebar.selectbox("FPS:", [24, 30], index=0)
-dur_choice  = st.sidebar.slider("Durata video (sec)", 10, 120, 30, 5)
-st.sidebar.caption(f"~{dur_choice*fps_choice} frame · stima {dur_choice*fps_choice//60 + 1}-{dur_choice*fps_choice//40 + 2} min")
+dur_choice  = st.sidebar.slider("Durata video (sec)", 10, 240, 30, 5)
+# FPS adattivi automatici per video lunghi
+effective_fps = fps_choice if dur_choice <= 120 else 15
+if dur_choice > 120:
+    st.sidebar.info(f"⚠️ Oltre 2 min: FPS ridotti a 15 automaticamente per stabilità")
+st.sidebar.caption(f"~{dur_choice*effective_fps} frame · stima {dur_choice*effective_fps//60 + 1}-{dur_choice*effective_fps//40 + 2} min")
 
 if audio_file:
     audio_bytes = audio_file.read()
@@ -766,10 +770,11 @@ if audio_file:
 
             # Bottone genera video — sotto la copertina
             st.markdown("### 🎬 Genera Video da questa Copertina")
-            total_frames_est = dur_choice * fps_choice
+            total_frames_est = dur_choice * effective_fps
             min_est = total_frames_est // 60 + 1
             max_est = total_frames_est // 40 + 2
-            st.info(f"⏱️ Durata: {dur_choice}s · {total_frames_est} frame · stima {min_est}-{max_est} minuti")
+            dur_str = f"{dur_choice//60}:{dur_choice%60:02d}" if dur_choice >= 60 else f"{dur_choice}s"
+            st.info(f"⏱️ Durata: {dur_str} · {total_frames_est} frame @ {effective_fps}fps · stima {min_est}-{max_est} min")
 
             if st.button("🎬 Genera Video Glitch", key="gen_video"):
                 prog_bar = st.progress(0, text="Generando frame...")
@@ -790,7 +795,7 @@ if audio_file:
                     t0 = time.time()
                     video_path = generate_video(
                         mf, seed, size, audio_bytes,
-                        fps=fps_choice, duration_sec=float(dur_choice),
+                        fps=effective_fps, duration_sec=float(dur_choice),
                         glitch_controls=glitch_controls,
                         glitch_intensity=glitch_intensity,
                         progress_cb=update_progress
@@ -810,9 +815,9 @@ if audio_file:
                         audio_file.name, st.session_state.regen_count,
                         glitch_controls, glitch_intensity,
                         video_info=dict(
-                            duration_str=f"{mins}:{secs:02d}",
+                            duration_str=f"{dur_choice//60}:{dur_choice%60:02d}",
                             total_frames=total_frames_est,
-                            fps=fps_choice,
+                            fps=effective_fps,
                             resolution=f"{w}x{h}"
                         )
                     )
