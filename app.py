@@ -89,7 +89,7 @@ def analyze_audio_features(audio_bytes: bytes):
 def extract_frame_curves(audio_bytes: bytes, fps: int, duration_sec: float):
     """Estrae curve RMS + onset frame per frame per il video (audio completo)."""
     y, sr = librosa.load(io.BytesIO(audio_bytes), sr=22050, mono=True,
-                         duration=duration_sec if duration_sec > 0 else None)
+                         duration=duration_sec if duration_sec and duration_sec > 0 else None)
     total_frames = int(len(y)/sr * fps)
     hop = max(1, len(y)//total_frames)
 
@@ -430,26 +430,29 @@ def generate_cover(features, seed, size=(800,800), glitch_controls=None, glitch_
 # ═══════════════════════════════════════════
 
 def generate_video(features, seed, size, audio_bytes, fps, duration_sec,
-                   glitch_controls, glitch_intensity, progress_cb=None):
-    """
-    Genera un MP4 glitch sincronizzato all'audio con smoothing.
-    Ritorna il path del file temporaneo.
-    """
-    # Dimensioni divisibili per 16 (requisito codec)
+                   glitch_controls, glitch_intensity, progress_cb=None,
+                   cover_img_bytes=None):
+    # Dimensioni divisibili per 16
     w, h = make_divisible(size)
     render_size = (w, h)
 
-    # Estrai curve audio frame per frame
     rms_curve, onset_curve, zcr_curve, actual_dur = extract_frame_curves(
         audio_bytes, fps, duration_sec
     )
     total_frames = len(rms_curve)
 
-    # Palette e background BASE fissi per tutto il video (coerenza visiva)
     mfcc = features['mfcc_features']
     palette_seed = seed ^ int(abs(mfcc[2])*1000) ^ int(abs(mfcc[5])*100)
     palette = build_palette(features, palette_seed)
-    base_bg = pick_background(render_size, features, seed, palette)
+
+    # BASE: usa la copertina generata se disponibile
+    if cover_img_bytes is not None:
+        try:
+            base_bg = Image.open(io.BytesIO(cover_img_bytes)).convert('RGB').resize(render_size, Image.LANCZOS)
+        except Exception:
+            base_bg = pick_background(render_size, features, seed, palette)
+    else:
+        base_bg = pick_background(render_size, features, seed, palette)
 
     # Secondo layer per blend dinamico
     s2 = seed + 999983
@@ -569,18 +572,13 @@ def generate_report(features, filename, regen, glitch_controls, glitch_intensity
                     video_info=None):
     notes=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B']
     dn=notes[features['tonal_centroid']%12]
-    bf="lento" if features['bpm']<80 else ("moderato" if features['bpm']<120 else ("veloce" if features['bpm']<160 else "frenetico"))
     rf="sussurrato" if features['rms']<0.02 else ("delicato" if features['rms']<0.05 else ("potente" if features['rms']<0.08 else "esplosivo"))
-    ae=[k.replace("_"," ") for k,v in glitch_controls.items() if isinstance(v,bool) and v]
-    tn=filename.rsplit('.',1)[0]
+    vol_num = str(regen).zfill(2)
 
     video_section = ""
     if video_info:
         video_section = f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎬  VIDEO GENERATO
-
+:: VIDEO GENERATO
     Durata          →  {video_info['duration_str']}
     Frame totali    →  {video_info['total_frames']}
     FPS             →  {video_info['fps']}
@@ -592,20 +590,16 @@ def generate_report(features, filename, regen, glitch_controls, glitch_intensity
                        Blend alpha   → aberrazione cromatica
 """
 
-    return f"""╔══════════════════════════════════════════════════════════════╗
-║         🎵 GLITCHCOVER STUDIO — REPORT AUDIO/VISIVO          ║
-║                      by Loop507                              ║
-╚══════════════════════════════════════════════════════════════╝
+    return f"""[GlitchCoverStudio] // VOL_{vol_num} // H.264 // PNG
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📁 FILE:      {filename}
-🎨 VARIANTE:  #{regen}
-🧬 SIGNATURE: {features['audio_signature']}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+:: STILE: Glitch Generativo / Algorithmic Art
+:: VARIANTE: #{regen}
+:: SIGNATURE: {features['audio_signature']}
 
-📊  DATI AUDIO
+Ogni Pixel e ogni Frame sono il Riflesso di un Dato Sonoro Reale.
 
-    BPM                  →  {features['bpm']:.1f}   [{bf}]
+:: DATI AUDIO
+    BPM                  →  {features['bpm']:.1f}
     RMS Energy           →  {features['rms']:.4f}  [{rf}]
     Centroide Spettrale  →  {features['spectral_centroid']:.0f} Hz
     Banda Spettrale      →  {features['spectral_bandwidth']:.0f} Hz
@@ -616,31 +610,13 @@ def generate_report(features, filename, regen, glitch_controls, glitch_intensity
     Onset Strength       →  {features['onset_strength']:.2f}
     Nota Dominante       →  {dn}
     Emozione             →  {features['emotion']}
-    Dimensione file      →  {features['file_size']/1024:.1f} KB
 {video_section}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+:: Regia e Algoritmo: Loop507
 
-📱  DESCRIZIONE SOCIAL / YOUTUBE
-
-🎵 "{tn}" — Artwork generativo da GlitchCover Studio
-
-Ogni pixel e ogni frame sono il riflesso di un dato sonoro reale:
-
-→ BPM {features['bpm']:.0f} → velocita dei pattern glitch
-→ RMS {features['rms']:.3f} → intensita delle corruzioni
-→ Centroide {features['spectral_centroid']:.0f} Hz → tipo di distorsione
-→ Nota dominante {dn} → palette colori
-→ Emozione {features['emotion']} → stile generale
-
-🤖 #GlitchCoverStudio · #Loop507
-🎨 Arte algoritmica da analisi audio · No AI generativa
-
-#glitchart #coverart #algorithmicart #audiovisual
-#glitch #{features['emotion'].lower()} #bpm{int(features['bpm'])} #loop507
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Generato il: {time.strftime('%Y-%m-%d %H:%M')}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#GlitchArt #CoverArt #AlgorithmicArt #AudioVisual #Glitch
+#SoundDesign #ComputationalMinimalism #SignalCorruption
+#NewMediaArt #DataNoise #NoiseMusic #AlgorithmicVideo
+#{features['emotion']} #BPM{int(features['bpm'])} #Loop507
 """
 
 # ═══════════════════════════════════════════
@@ -679,13 +655,20 @@ glitch_controls = {'pixel_sorting':use_ps,'digital_corruption':use_dc,
 # ── VIDEO SETTINGS (sidebar) ──────────────
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎬 Impostazioni Video")
-fps_choice  = st.sidebar.selectbox("FPS:", [24, 30], index=0)
-dur_choice  = st.sidebar.slider("Durata video (sec)", 10, 240, 30, 5)
+fps_choice = st.sidebar.selectbox("FPS:", [24, 30], index=0)
+dur_mode   = st.sidebar.radio("Durata video:", ["Brano completo", "Personalizzata"], index=0)
+if dur_mode == "Personalizzata":
+    dur_choice = st.sidebar.slider("Durata (sec)", 10, 240, 30, 5)
+else:
+    dur_choice = 0  # 0 = usa durata reale del brano (calcolata dopo l'analisi)
 # FPS adattivi automatici per video lunghi
-effective_fps = fps_choice if dur_choice <= 120 else 15
+effective_fps = fps_choice if (dur_choice == 0 or dur_choice <= 120) else 15
 if dur_choice > 120:
-    st.sidebar.info(f"⚠️ Oltre 2 min: FPS ridotti a 15 automaticamente per stabilità")
-st.sidebar.caption(f"~{dur_choice*effective_fps} frame · stima {dur_choice*effective_fps//60 + 1}-{dur_choice*effective_fps//40 + 2} min")
+    st.sidebar.info("⚠️ Oltre 2 min: FPS ridotti a 15 automaticamente")
+if dur_choice == 0:
+    st.sidebar.caption("Durata = lunghezza reale del brano")
+else:
+    st.sidebar.caption(f"~{dur_choice*effective_fps} frame · stima {dur_choice*effective_fps//60 + 1}-{dur_choice*effective_fps//40 + 2} min")
 
 if audio_file:
     audio_bytes = audio_file.read()
@@ -770,11 +753,19 @@ if audio_file:
 
             # Bottone genera video — sotto la copertina
             st.markdown("### 🎬 Genera Video da questa Copertina")
-            total_frames_est = dur_choice * effective_fps
+            # Durata effettiva: 0 = brano completo (calcolato da librosa)
+            real_dur = float(dur_choice) if dur_choice > 0 else None
+            # Stima frame per info box (approssimazione se brano completo)
+            est_sec  = dur_choice if dur_choice > 0 else 180
+            eff_fps  = fps_choice if est_sec <= 120 else 15
+            total_frames_est = est_sec * eff_fps
             min_est = total_frames_est // 60 + 1
             max_est = total_frames_est // 40 + 2
-            dur_str = f"{dur_choice//60}:{dur_choice%60:02d}" if dur_choice >= 60 else f"{dur_choice}s"
-            st.info(f"⏱️ Durata: {dur_str} · {total_frames_est} frame @ {effective_fps}fps · stima {min_est}-{max_est} min")
+            if dur_choice == 0:
+                st.info(f"⏱️ Durata: brano completo · {eff_fps}fps · stima {min_est}-{max_est} min (varia con la durata del brano)")
+            else:
+                dur_str = f"{dur_choice//60}:{dur_choice%60:02d}" if dur_choice >= 60 else f"{dur_choice}s"
+                st.info(f"⏱️ Durata: {dur_str} · {total_frames_est} frame @ {eff_fps}fps · stima {min_est}-{max_est} min")
 
             if st.button("🎬 Genera Video Glitch", key="gen_video"):
                 prog_bar = st.progress(0, text="Generando frame...")
@@ -791,14 +782,20 @@ if audio_file:
                 mf['percussive_energy'] *= glitch_intensity
                 mf['onset_strength'] *= glitch_intensity
 
+                # Durata reale: se brano completo, passa 0 → extract_frame_curves carica tutto
+                actual_dur_sec = real_dur if real_dur is not None else 0.0
+                actual_eff_fps = fps_choice if (actual_dur_sec == 0 or actual_dur_sec <= 120) else 15
+
                 try:
                     t0 = time.time()
                     video_path = generate_video(
                         mf, seed, size, audio_bytes,
-                        fps=effective_fps, duration_sec=float(dur_choice),
+                        fps=actual_eff_fps,
+                        duration_sec=actual_dur_sec,
                         glitch_controls=glitch_controls,
                         glitch_intensity=glitch_intensity,
-                        progress_cb=update_progress
+                        progress_cb=update_progress,
+                        cover_img_bytes=st.session_state.img_bytes
                     )
                     prog_bar.progress(100, text="Finalizzando...")
                     gen_time = time.time()-t0
@@ -809,15 +806,17 @@ if audio_file:
 
                     # Aggiorna report con info video
                     w,h = make_divisible(get_dimensions(aspect_ratio))
-                    mins = int(dur_choice//60); secs = int(dur_choice%60)
+                    used_dur = actual_dur_sec if actual_dur_sec > 0 else est_sec
+                    used_frames = int(used_dur * actual_eff_fps)
+                    mins = int(used_dur//60); secs_r = int(used_dur%60)
                     st.session_state.report_text = generate_report(
                         st.session_state.features_saved or features,
                         audio_file.name, st.session_state.regen_count,
                         glitch_controls, glitch_intensity,
                         video_info=dict(
-                            duration_str=f"{dur_choice//60}:{dur_choice%60:02d}",
-                            total_frames=total_frames_est,
-                            fps=effective_fps,
+                            duration_str=f"{mins}:{secs_r:02d}",
+                            total_frames=used_frames,
+                            fps=actual_eff_fps,
                             resolution=f"{w}x{h}"
                         )
                     )
