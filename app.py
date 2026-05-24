@@ -596,103 +596,67 @@ def generate_video(features, seed, size, audio_bytes, fps, duration_sec,
         zcr_v   = float(zcr_curve[i])
         frame_seed = (seed + i * 7919) & 0x7FFFFFFF
 
-        # ── LAYER BASE ────────────────────────────────────────
-        blend_alpha = 0.10 + onset_v * 0.35
+        # ── LAYER BASE — blend lento che evolve nel tempo ─────
+        # Il fondo si trasforma tra base_bg e base_bg2 con un'onda
+        # lenta + risposta ai beat: dà vita al video senza distruggere
+        # l'estetica glitch
+        t = i / fps
+        blend_alpha = 0.5 + 0.4 * math.sin(t * 0.3) + onset_v * 0.15
+        blend_alpha = max(0.0, min(1.0, blend_alpha))
         try:
             frame = Image.blend(base_bg, base_bg2, blend_alpha)
         except:
             frame = base_bg.copy()
 
-        # ── TRASFORMAZIONI SPAZIALI ───────────────────────────
+        # ── EFFETTI GLITCH (identici all'immagine statica) ────
 
-        # 1. Wave distortion — il movimento base, sempre attivo
-        try:
-            frame = motion_wave_distort(frame, rms_v, onset_v, i, fps, glitch_intensity)
-        except: pass
-
-        # 2. Zoom pulse — respira col volume
-        try:
-            frame = motion_zoom_pulse(frame, rms_v, onset_v, glitch_intensity, render_size)
-        except: pass
-
-        # 3. Slice shift — l'effetto più forte, sui beat
-        try:
-            frame = motion_slice_shift(frame, onset_v, rms_v, i, fps, glitch_intensity)
-        except: pass
-
-        # 4. RGB split animato — in continuo movimento
-        try:
-            frame = motion_rgb_split_anim(frame, onset_v, rms_v, i, fps, glitch_intensity)
-        except: pass
-
-        # 5. Rotation drift — oscillazione lenta
-        try:
-            frame = motion_rotation_drift(frame, i, fps, rms_v, render_size)
-        except: pass
-
-        # 6. Pan/shift ritmico
-        try:
-            frame = motion_pan_shift(frame, onset_v, i, fps, glitch_intensity, render_size)
-        except: pass
-
-        # 7. Hue rotation — i colori vivono
-        try:
-            frame = motion_hue_rotation(frame, i, fps, rms_v, onset_v, glitch_intensity)
-        except: pass
-
-        # ── EFFETTI GLITCH ────────────────────────────────────
-
-        # 8. Aberrazione cromatica
+        # 1. Aberrazione cromatica — proporzionale all'onset
         if glitch_controls.get('chromatic_aberration', True):
             dyn_f = features.copy()
             dyn_f['spectral_bandwidth'] = features['spectral_bandwidth'] * (0.5 + onset_v * 2.0)
             dyn_f['rms'] = rms_v * 0.3
             try:
-                frame = ov_channel_bleed(frame, dyn_f, frame_seed, intensity=0.2+onset_v*2.0*glitch_intensity)
+                frame = ov_channel_bleed(frame, dyn_f, frame_seed,
+                                         intensity=0.3 + onset_v * 2.5 * glitch_intensity)
             except: pass
 
-        # 9. Corruzioni digitali — sui picchi
+        # 2. Corruzioni digitali — solo sui picchi
         if glitch_controls.get('digital_corruption', True) and onset_v > 0.55:
             dyn_f = features.copy()
             dyn_f['zero_crossing_rate'] = zcr_v * 0.5
             dyn_f['rms'] = rms_v
             try:
-                frame = ov_corruption(frame, dyn_f, frame_seed+100,
-                                      intensity=(onset_v-0.55)*2.5*glitch_intensity)
+                frame = ov_corruption(frame, dyn_f, frame_seed + 100,
+                                      intensity=(onset_v - 0.55) * 3.0 * glitch_intensity)
             except: pass
 
-        # 10. Pixel sorting
-        if glitch_controls.get('pixel_sorting', True) and rms_v > 0.25:
+        # 3. Pixel sorting — dal RMS
+        if glitch_controls.get('pixel_sorting', True) and rms_v > 0.3:
             dyn_f = features.copy()
             dyn_f['onset_strength'] = onset_v * features['onset_strength']
             dyn_f['percussive_energy'] = rms_v * features['percussive_energy'] * 3
             try:
-                frame = ov_pixel_sort(frame, dyn_f, frame_seed+200,
-                                      intensity=rms_v*glitch_intensity*0.7)
+                frame = ov_pixel_sort(frame, dyn_f, frame_seed + 200,
+                                      intensity=rms_v * glitch_intensity * 0.8)
             except: pass
 
-        # 11. Scan interference
+        # 4. Scan interference — leggera, sempre presente
         try:
-            frame = ov_scan_interference(frame, frame_seed+300, intensity=0.08+rms_v*0.4*glitch_intensity)
+            frame = ov_scan_interference(frame, frame_seed + 300,
+                                         intensity=0.1 + rms_v * 0.5 * glitch_intensity)
         except: pass
 
-        # 12. Databend — picchi forti
-        if onset_v > 0.72:
+        # 5. Databend — solo sui picchi forti
+        if onset_v > 0.75:
             try:
-                frame = ov_databend(frame, frame_seed+400, intensity=onset_v*glitch_intensity*0.8)
+                frame = ov_databend(frame, frame_seed + 400,
+                                    intensity=onset_v * glitch_intensity)
             except: pass
 
         # ── FINALIZZAZIONE ────────────────────────────────────
-
-        # 13. Vignette pulsante
         try:
-            frame = motion_vignette_pulse(frame, rms_v, onset_v, render_size, glitch_intensity)
-        except: pass
-
-        # 14. Saturazione e contrasto
-        try:
-            frame = ImageEnhance.Color(frame).enhance(0.85 + rms_v * 1.2 * glitch_intensity)
-            frame = ImageEnhance.Contrast(frame).enhance(0.9 + onset_v * 0.7)
+            frame = ImageEnhance.Color(frame).enhance(0.8 + rms_v * 1.5 * glitch_intensity)
+            frame = ImageEnhance.Contrast(frame).enhance(0.9 + onset_v * 0.8)
         except: pass
 
         if frame.size != render_size:
